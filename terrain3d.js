@@ -342,7 +342,7 @@ export class TerrainLOD {
           if (cached) { this._setPhoto(u, cached.tex, cached.from); continue; }
           if (u.S >= 1000 && this.basePhoto && !this.tm?.photoYear && this.photoSource !== 'esri') {
             const b = this._baseTex(u, true);                    // big patches: the shipped 1 m photo is sharp enough
-            if (b) { const m = this._baseMaterial(u, b); u.photo = m.mat; u.photoTex = m.tex; u.photoState = 'ready'; u.photoFrom = 'base'; this._dropPlaceholder(u); }
+            if (b) { const m = this._baseMaterial(u, b); u.photo = m.mat; u.photoTex = m.tex; u.photoState = 'ready'; u.photoFrom = 'base'; this._dropPlaceholder(u); continue; }
             else {
               const L = this._baseLevel(u.S), T = 1000 * 2 ** L;
               if (this.baseCache.get(`${L}/${Math.floor(u.e0 / T)}_${Math.floor(u.n0 / T)}`)?.state !== 'missing') continue;   // still loading

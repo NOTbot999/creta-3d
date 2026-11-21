@@ -56,7 +56,7 @@
 <script>
 const ORTHO_YEARS = {"2018": "2018-01-01T00:00:00.000Z/2021-12-31T23:59:59.000Z", "2016": "2016-01-01T00:00:00.000Z", "2009": "2009-01-01T00:00:00.000Z/2011-12-31T23:59:59.000Z", "2006": "2006-01-01T00:00:00.000Z", "2001": "2001-01-01T00:00:00.000Z/2005-12-31T23:59:59.000Z", "1997": "1997-01-01T00:00:00.000Z/2000-12-31T23:59:59.000Z"};
 window.CAVEMAP_CFG = {
-  tiles: 'data', worker: 'fmdt-worker.js?v=baebe547',
+  tiles: 'data', worker: 'fmdt-worker.js?v=5918eeb9',
   basePhoto: (L, x, y) => 'data/photo/' + L + '/' + x + '_' + y + '.jpg', basePhotoLevels: 4,
   // GURS orthophoto in D96/TM; a year selects the historical layer (DOF050_Z + TIME) for the time slider
   ortho: (e0, n0, s, year) => 'https://ipi.eprostor.gov.si/wms-si-gurs-dts/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap'
@@ -119,7 +119,7 @@ window.CAVEMAP_CFG = {
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { TerrainLOD } from './terrain3d.js?v=baebe547';
+import { TerrainLOD } from './terrain3d.js?v=5918eeb9';
 
 const q = new URLSearchParams(location.search);
 const cE = +(q.get('e') || 497000), cN = +(q.get('n') || 127000), size = +(q.get('size') || 10000);
