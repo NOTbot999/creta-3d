@@ -7,7 +7,9 @@ const ROOT = 32000;              // root patch = one level-5 tile (32 km)
 const MIN_PATCH = 125;           // smallest patch: 125 m at 1 m spacing
 
 export class TerrainLOD {
-  constructor(scene, { baseUrl = '/terrain', workerUrl = '/static/fmdt-worker.js', orthoUrl = null, centreE, centreN, size, exaggeration = 1 } = {}) {
+  constructor(scene, { baseUrl = '/terrain', workerUrl = '/static/fmdt-worker.js', orthoUrl = null, basePhoto = null, basePhotoLevels = 0, centreE, centreN, size, exaggeration = 1 } = {}) {
+    // pre-baked photo of the whole area shipped with the site (1 m/px at level 0, tiles of 1000*2^L m)
+    this.basePhoto = basePhoto; this.basePhotoLevels = basePhotoLevels; this.baseCache = new Map(); this.baseInflight = 0;
     this.scene = scene; this.baseUrl = baseUrl; this.cE = centreE; this.cN = centreN;
     this.orthoUrl = orthoUrl || ((e0, n0, S, year) => `/ortho?e0=${e0}&n0=${n0}&s=${S}&px=256${year ? '&year=' + year : ''}`);
     // time model (years before today): 0 = measured terrain; see setTime()
@@ -45,6 +47,8 @@ export class TerrainLOD {
     this.lodFactor = 2.2; this.frame = 0; this.stats = {};
     this.orthoInflight = 0; this.texLoader = new THREE.TextureLoader();
     this.photoStats = { gursOk: 0, gursFail: 0, esriOk: 0, failed: 0 };
+    this.photoCache = new Map();             // photo key -> {tex, from, used}; survives patch rebuilds and revisits
+    this._frustum = new THREE.Frustum(); this._m4 = new THREE.Matrix4(); this._sphere = new THREE.Sphere();
   }
 
   // ---------------------------------------------------------------- coordinates
@@ -107,7 +111,7 @@ export class TerrainLOD {
     return this.tm;
   }
   rebuild() {
-    for (const p of this.patches.values()) { p.mesh?.geometry.dispose(); p.mesh?.userData.photo?.map?.dispose(); p.mesh?.userData.photo?.dispose(); }
+    for (const p of this.patches.values()) { p.mesh?.geometry.dispose(); this._freePhoto(p.mesh?.userData); this._dropPlaceholder(p.mesh?.userData); }
     this.patches.clear();
   }
   // height at one node given measured (d), natural (n) and envelope (e) values
@@ -325,21 +329,48 @@ export class TerrainLOD {
         .map((Sn) => (Sn > S ? Sn / SEG : 0));
       this._snapEdges(m, nb);
     }
-    // satellite photos: request the nearest visible patches first (max 8 downloads at a time)
+    // satellite photos: patches on screen first, nearest first; until a patch has its own photo it shows the
+    // matching part of its parent's photo (so moving closer never leaves holes)
     const photoOn = this.uPhoto.value > 0.001 && this.tm.photoYear !== null;
     if (photoOn) {
-      const want = [...show].filter((m) => m.userData.photoState === 'none')
-        .map((m) => [m, m.position.distanceToSquared(camera.position)]).sort((a, b) => a[1] - b[1]);
-      for (const [m] of want) { if (this.orthoInflight >= 8) break; this._loadPhoto(m); }
+      this._frustum.setFromProjectionMatrix(this._m4.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+      const want = [];
+      for (const m of show) {
+        const u = m.userData;
+        if (u.photoState === 'none') {
+          const cached = this.photoCache.get(this._photoKey(u));
+          if (cached) { this._setPhoto(u, cached.tex, cached.from); continue; }
+          if (u.S >= 1000 && this.basePhoto && !this.tm?.photoYear && this.photoSource !== 'esri') {
+            const b = this._baseTex(u, true);                    // big patches: the shipped 1 m photo is sharp enough
+            if (b) { const m = this._baseMaterial(u, b); u.photo = m.mat; u.photoTex = m.tex; u.photoState = 'ready'; u.photoFrom = 'base'; this._dropPlaceholder(u); }
+            else {
+              const L = this._baseLevel(u.S), T = 1000 * 2 ** L;
+              if (this.baseCache.get(`${L}/${Math.floor(u.e0 / T)}_${Math.floor(u.n0 / T)}`)?.state !== 'missing') continue;   // still loading
+            }
+          }
+          this._sphere.copy(m.geometry.boundingSphere).applyMatrix4(m.matrixWorld);
+          const onScreen = this._frustum.intersectsSphere(this._sphere);
+          want.push([m, m.position.distanceToSquared(camera.position) * (onScreen ? 1 : 25)]);
+        }
+      }
+      want.sort((a, b) => a[1] - b[1]);
+      for (const [m] of want) { if (this.orthoInflight >= 12) break; this._loadPhoto(m); }
     }
     for (const m of show) {
-      const u = m.userData, wantMat = photoOn && u.photo ? u.photo : this.mat;
+      const u = m.userData;
+      let wantMat = this.mat;
+      if (photoOn) wantMat = u.photo || this._placeholder(u) || this.mat;
       if (m.material !== wantMat) m.material = wantMat;
     }
     // evict old patches / tiles
     if (this.frame % 60 === 0) {
       for (const [k, p] of this.patches) if (this.frame - p.used > 300) {
-        p.mesh?.geometry.dispose(); p.mesh?.userData.photo?.map?.dispose(); p.mesh?.userData.photo?.dispose(); this.patches.delete(k);
+        const u = p.mesh?.userData;
+        p.mesh?.geometry.dispose(); this._freePhoto(u); this._dropPlaceholder(u); this.patches.delete(k);   // photo textures stay cached
+      }
+      if (this.photoCache.size > 500) {                        // keep the most recently used photos
+        const old = [...this.photoCache.entries()].sort((a, b) => a[1].used - b[1].used).slice(0, this.photoCache.size - 500);
+        for (const [key, c] of old) { c.tex.dispose(); this.photoCache.delete(key); }
       }
       const ready = [...this.tiles.entries()].filter(([, t]) => t.state === 'ready').sort((a, b) => a[1].used - b[1].used);
       for (const [k] of ready.slice(0, Math.max(0, ready.length - 80))) this.tiles.delete(k);
@@ -360,8 +391,87 @@ export class TerrainLOD {
     const gursBad = (this.photoStats.gursFail >= 3 && this.photoStats.gursOk === 0);
     return gursBad ? [esri, gurs] : [gurs, esri];
   }
+  _photoKey(u) { return `${this.photoSource || 'auto'}|${this.tm?.photoYear || ''}|${u.S}/${u.e0}/${u.n0}`; }
+  _setPhoto(u, tex, from) {
+    const c = this.photoCache.get(this._photoKey(u)); if (c) c.used = this.frame;
+    u.photo = new THREE.MeshLambertMaterial({ map: tex, vertexColors: true });
+    u.photo.onBeforeCompile = this._photoShader;
+    u.photo.customProgramCacheKey = () => 'terrain-photo';
+    this._applyAlpha(u.photo);
+    u.photoState = 'ready'; u.photoFrom = from;
+    this._dropPlaceholder(u);
+  }
+  // pre-baked area photo covering patch u (null if not shipped / not loaded yet); starts loading if needed
+  _baseEntry(L, E, N) {
+    const T = 1000 * 2 ** L, x = Math.floor(E / T), y = Math.floor(N / T), key = `${L}/${x}_${y}`;
+    let b = this.baseCache.get(key);
+    if (!b) { b = { state: 'new', T, x, y, L }; this.baseCache.set(key, b); }
+    if (b.state === 'new' && this.baseInflight < 12) {
+      b.state = 'loading'; this.baseInflight++;
+      this.texLoader.load(this.basePhoto(L, x, y), (tex) => {
+        this.baseInflight--; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+        b.tex = tex; b.state = 'ready';
+      }, undefined, () => { this.baseInflight--; b.state = 'missing'; });
+    }
+    return b;
+  }
+  // finest shipped photo tile covering patch u that is ready (asks for the ideal one, uses a coarser one meanwhile)
+  _baseTex(u, exact = false) {
+    if (!this.basePhoto || this.tm?.photoYear || this.photoSource === 'esri') return null;
+    const L0 = this._baseLevel(u.S);
+    const want = this._baseEntry(L0, u.e0, u.n0);
+    if (want.state === 'ready' || exact) return want.state === 'ready' ? want : null;
+    for (let L = L0 + 1; L < this.basePhotoLevels; L++) { const b = this._baseEntry(L, u.e0, u.n0); if (b.state === 'ready') return b; }
+    return null;
+  }
+  // load the coarse shipped photo tiles of the whole area up front (few, small) so nothing is ever plain
+  preloadBase() {
+    if (!this.basePhoto) return;
+    const [a0, b0, a1, b1] = this.area;
+    for (let L = this.basePhotoLevels - 1; L >= 1; L--) {
+      const T = 1000 * 2 ** L;
+      for (let E = Math.floor(a0 / T) * T; E < a1; E += T) for (let N = Math.floor(b0 / T) * T; N < b1; N += T) this._baseEntry(L, E, N);
+    }
+  }
+  _baseMaterial(u, b) {
+    const tex = b.tex.clone();                                  // shares the image: no new download or upload
+    tex.repeat.set(u.S / b.T, u.S / b.T); tex.offset.set((u.e0 - b.x * b.T) / b.T, (u.n0 - b.y * b.T) / b.T); tex.needsUpdate = true;
+    const mat = new THREE.MeshLambertMaterial({ map: tex, vertexColors: true });
+    mat.onBeforeCompile = this._photoShader; mat.customProgramCacheKey = () => 'terrain-photo';
+    this._applyAlpha(mat);
+    return { mat, tex };
+  }
+  // stand-in until a patch's own photo arrives: the matching part of the nearest ancestor's photo
+  _placeholder(u) {
+    for (let Sa = u.S * 2; Sa <= ROOT; Sa *= 2) {
+      const ea = Math.floor(u.e0 / Sa) * Sa, na = Math.floor(u.n0 / Sa) * Sa;
+      const c = this.photoCache.get(`${this.photoSource || 'auto'}|${this.tm?.photoYear || ''}|${Sa}/${ea}/${na}`);
+      if (!c) continue;
+      if (u.ph && u.ph.Sa <= Sa) return u.ph.mat;               // already showing this or a sharper ancestor
+      this._dropPlaceholder(u);
+      c.used = this.frame;
+      const tex = c.tex.clone();                               // shares the image: no new download or upload
+      tex.repeat.set(u.S / Sa, u.S / Sa); tex.offset.set((u.e0 - ea) / Sa, (u.n0 - na) / Sa); tex.needsUpdate = true;
+      const mat = new THREE.MeshLambertMaterial({ map: tex, vertexColors: true });
+      mat.onBeforeCompile = this._photoShader; mat.customProgramCacheKey = () => 'terrain-photo';
+      this._applyAlpha(mat);
+      u.ph = { Sa, mat, tex };
+      return mat;
+    }
+    if (u.ph && u.ph.baseL === undefined) return u.ph.mat;       // an ancestor's live photo: keep it
+    const b = this._baseTex(u);                                  // otherwise the shipped area photo (finest ready)
+    if (b && !(u.ph && u.ph.baseL <= b.L)) {
+      this._dropPlaceholder(u);
+      const m = this._baseMaterial(u, b); u.ph = { Sa: Infinity, baseL: b.L, mat: m.mat, tex: m.tex };
+    }
+    return u.ph?.mat || null;
+  }
+  _freePhoto(u) { if (!u) return; u.photo?.dispose(); u.photoTex?.dispose(); u.photo = null; u.photoTex = null; }
+  _baseLevel(S) { return Math.min(this.basePhotoLevels - 1, Math.max(0, Math.ceil(Math.log2(S / 1000)))); }
+  _dropPlaceholder(u) { if (u?.ph) { u.ph.mat.dispose(); u.ph.tex.dispose(); u.ph = null; } }
   _loadPhoto(m) {
     const u = m.userData; u.photoState = 'loading'; this.orthoInflight++;
+    const key = this._photoKey(u);
     const urls = this._photoUrls(u); let k = 0, done = false;
     const tryNext = () => {
       if (k >= urls.length) { this.orthoInflight--; u.photoState = 'failed'; this.photoStats.failed++; return; }
@@ -372,11 +482,9 @@ export class TerrainLOD {
         if (settled || done) { tex.dispose(); return; }
         settled = done = true; clearTimeout(timer); this.orthoInflight--;
         tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-        u.photo = new THREE.MeshLambertMaterial({ map: tex, vertexColors: true });
-        u.photo.onBeforeCompile = this._photoShader;
-        u.photo.customProgramCacheKey = () => 'terrain-photo';
-        this._applyAlpha(u.photo);
-        u.photoState = 'ready'; u.photoFrom = isGurs ? 'gurs' : 'esri';
+        const from = isGurs ? 'gurs' : 'esri';
+        this.photoCache.set(key, { tex, from, used: this.frame });
+        if (key === this._photoKey(u)) this._setPhoto(u, tex, from); else u.photoState = 'none';   // source/year changed meanwhile
         if (isGurs) this.photoStats.gursOk++; else this.photoStats.esriOk++;
       }, undefined, () => {
         if (settled) return; settled = true; clearTimeout(timer);
@@ -386,11 +494,17 @@ export class TerrainLOD {
     };
     tryNext();
   }
+  // rebuild all patches (e.g. new height exaggeration); downloaded photos stay cached
+  resetPatches() {
+    for (const p of this.patches.values()) { p.mesh?.geometry.dispose(); this._freePhoto(p.mesh?.userData); this._dropPlaceholder(p.mesh?.userData); }
+    this.patches.clear();
+  }
   setPhotoSource(src) {                                         // 'auto' | 'gurs' | 'esri' — reload photos
     this.photoSource = src;
     for (const p of this.patches.values()) {
       const u = p.mesh?.userData; if (!u) continue;
-      if (u.photo) { u.photo.map?.dispose(); u.photo.dispose(); u.photo = null; }
+      this._freePhoto(u);
+      this._dropPlaceholder(u);
       if (u.photoState !== 'loading') u.photoState = 'none';
     }
   }

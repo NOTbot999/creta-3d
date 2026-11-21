@@ -56,7 +56,8 @@
 <script>
 const ORTHO_YEARS = {"2018": "2018-01-01T00:00:00.000Z/2021-12-31T23:59:59.000Z", "2016": "2016-01-01T00:00:00.000Z", "2009": "2009-01-01T00:00:00.000Z/2011-12-31T23:59:59.000Z", "2006": "2006-01-01T00:00:00.000Z", "2001": "2001-01-01T00:00:00.000Z/2005-12-31T23:59:59.000Z", "1997": "1997-01-01T00:00:00.000Z/2000-12-31T23:59:59.000Z"};
 window.CAVEMAP_CFG = {
-  tiles: 'data', worker: 'fmdt-worker.js?v=fe0d6cbb',
+  tiles: 'data', worker: 'fmdt-worker.js?v=ffe2074e',
+  basePhoto: (L, x, y) => 'data/photo/' + L + '/' + x + '_' + y + '.jpg', basePhotoLevels: 4,
   // GURS orthophoto in D96/TM; a year selects the historical layer (DOF050_Z + TIME) for the time slider
   ortho: (e0, n0, s, year) => 'https://ipi.eprostor.gov.si/wms-si-gurs-dts/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap'
     + '&LAYERS=SI.GURS.ZPDZ:' + (year && ORTHO_YEARS[year] ? 'DOF050_Z&TIME=' + ORTHO_YEARS[year] : 'DOF050')
@@ -118,7 +119,7 @@ window.CAVEMAP_CFG = {
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { TerrainLOD } from './terrain3d.js?v=fe0d6cbb';
+import { TerrainLOD } from './terrain3d.js?v=ffe2074e';
 
 const q = new URLSearchParams(location.search);
 const cE = +(q.get('e') || 497000), cN = +(q.get('n') || 127000), size = +(q.get('size') || 10000);
@@ -140,8 +141,10 @@ const CFG = Object.assign({
   cave: (id, f) => `/api/cave/${id}/${f}`,
   labels: (e0, n0, e1, n1) => `/labels?e0=${e0}&n0=${n0}&e1=${e1}&n1=${n1}`,
 }, window.CAVEMAP_CFG || {});
-const terrain = new TerrainLOD(scene, { centreE: cE, centreN: cN, size, baseUrl: CFG.tiles, workerUrl: CFG.worker, orthoUrl: CFG.ortho });
+const terrain = new TerrainLOD(scene, { centreE: cE, centreN: cN, size, baseUrl: CFG.tiles, workerUrl: CFG.worker, orthoUrl: CFG.ortho,
+  basePhoto: CFG.basePhoto || null, basePhotoLevels: CFG.basePhotoLevels || 0 });
 await terrain.init();
+terrain.preloadBase();
 $('lod').oninput = (e) => terrain.lodFactor = +e.target.value;
 // layers: relief underneath, satellite on top with its own opacity
 const applyLayers = () => {
@@ -300,7 +303,7 @@ function setExag(v) {                     // height exaggeration: rebuild patche
   if (v === old) return;
   camera.position.y *= v / old; orbit.target.y *= v / old;
   terrain.exag = v;
-  for (const p of terrain.patches.values()) { p.mesh?.geometry.dispose(); p.mesh?.userData.photo?.map?.dispose(); p.mesh?.userData.photo?.dispose(); }
+  terrain.resetPatches();
   terrain.patches.clear();
   placeCaves();
 }
