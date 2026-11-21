@@ -418,6 +418,7 @@ export class TerrainLOD {
   // finest shipped photo tile covering patch u that is ready (asks for the ideal one, uses a coarser one meanwhile)
   _baseTex(u, exact = false) {
     if (!this.basePhoto || this.tm?.photoYear || this.photoSource === 'esri') return null;
+    if (u.S > 1000 * 2 ** (this.basePhotoLevels - 1)) return null;   // patch bigger than the largest shipped tile
     const L0 = this._baseLevel(u.S);
     const want = this._baseEntry(L0, u.e0, u.n0);
     if (want.state === 'ready' || exact) return want.state === 'ready' ? want : null;
