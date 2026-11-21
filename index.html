@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="sl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Čreta 3D — podzemlje</title>
+<style>
+  :root { --bg:#0f1216; --panel:#1c2027cc; --line:#2f3540; --text:#dde3ea; --muted:#8a94a3; --accent:#3fb68b; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font:13px "Segoe UI", system-ui, sans-serif; overflow:hidden; }
+  #c { width:100%; height:100%; display:block; }
+  .box { position:absolute; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 10px; backdrop-filter: blur(4px); }
+  #info { left:10px; top:10px; max-width:360px; }
+  #info h1 { font-size:15px; margin:0 0 4px; } #info p { margin:3px 0; color:var(--muted); font-size:12px; }
+  #ctl { right:10px; top:10px; display:flex; flex-direction:column; gap:6px; width:230px; }
+  #ctl label { display:flex; flex-direction:column; color:var(--muted); font-size:12px; gap:2px; }
+  #ctl input[type=range] { accent-color: var(--accent); }
+  #ctl button { background:#232831; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px; cursor:pointer; }
+  #ctl button.on { background:#2c8a69; border-color:var(--accent); }
+  #hud { left:10px; bottom:10px; font-size:12px; color:var(--muted); }
+  #load { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); font-size:15px; }
+  #labels { position:absolute; inset:0; pointer-events:none; overflow:hidden; }
+  .lb { position:absolute; transform:translate(-50%,-100%); white-space:nowrap; font-size:12px; color:#fff; text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000; display:flex; flex-direction:column; align-items:center; }
+  .lb::after { content:''; width:1px; height:14px; background:#fffc; box-shadow:0 0 2px #000; }
+  .lb b { font-weight:600; }
+  .lb.place b { font-size:13px; }
+  .lb.town b, .lb.village b { font-size:14px; }
+  .lb.peak b::before { content:'▲ '; color:#f2d49b; }
+  .lb.kataster b::before, .lb.cave b::before { content:'◉ '; color:#ff9d3c; }
+  .lb.kataster small, .lb.peak small { color:#d8dde3; font-size:11px; }
+  .lb.hut b::before { content:'⌂ '; color:#9fe0c3; }
+  .checks { display:flex; flex-wrap:wrap; gap:4px 10px; font-size:12px; }
+  #ctl .sec { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); margin-top:6px; border-top:1px solid var(--line); padding-top:6px; }
+  #ugList { display:flex; flex-direction:column; gap:3px; max-height:180px; overflow-y:auto; }
+  #ugList .cv { display:grid; grid-template-columns:10px 1fr auto; gap:6px; align-items:center; font-size:12px; padding:4px 6px; border-radius:5px; background:#0f1216; cursor:pointer; }
+  #ugList .cv:hover { outline:1px solid var(--accent); }
+  #ugList .cv i { width:10px; height:10px; border-radius:50%; }
+  #ugList .cv small { color:var(--muted); }
+  #ctl .row { display:flex; align-items:center; gap:6px; }
+  #ctl .row input[type=range] { flex:1; min-width:0; }
+  #ctl .row button { padding:3px 8px; }
+  #ctl .val { color:var(--text); font-size:12px; min-width:34px; text-align:right; }
+  #ctl label > .val { float:right; }
+  .checks label { flex-direction:row !important; align-items:center; gap:4px !important; color:var(--text) !important; }
+</style>
+<script>
+window.CAVEMAP_CFG = {
+  tiles: 'data', worker: 'fmdt-worker.js',
+  ortho: (e0, n0, s) => 'https://ipi.eprostor.gov.si/wms-si-gurs-dts/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=SI.GURS.ZPDZ:DOF050&STYLES=&SRS=EPSG:3794&BBOX=' + e0 + ',' + n0 + ',' + (e0 + s) + ',' + (n0 + s) + '&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg',
+  underground: 'data/underground.json',
+  cave: (id, f) => 'data/caves/' + id + '/' + f,
+  labels: () => 'data/labels.json',
+};
+</script>
+<script type="importmap">{ "imports": { "three": "./vendor/three/build/three.module.js", "three/addons/": "./vendor/three/examples/jsm/" } }</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="info" class="box"><h1>Čreta · 10 × 10 km · 3D lidar teren</h1>
+  <p>Lidar CLSS 2023 (GURS), mreža 1 m, merilo 1:1. Satelit: DOF050 (GURS). Imena: OpenStreetMap, jame: kataster jam. Detajl se nalaga sproti glede na razdaljo.</p>
+  <p><b>Desni klik + vleci</b> = gledanje · <b>WASD</b> premik · <b>Q/E</b> dol/gor · <b>Shift</b> hitreje · <b>kolešček</b> hitrost · <b>Tab</b> orbita</p></div>
+<div id="labels"></div>
+<div id="ctl" class="box">
+  <div style="display:flex;gap:6px"><button id="mFree" class="on" style="flex:1">Prosti pogled</button><button id="mOrbit" style="flex:1">Orbita</button></div>
+  <div class="checks">
+    <label><input type="checkbox" id="layRelief" checked> Relief (spodaj)</label>
+    <label><input type="checkbox" id="laySat" checked> Satelit (zgoraj)</label>
+  </div>
+  <label>Satelit – vidnost <span id="satVal" class="val">100 %</span><input id="satOp" type="range" min="0" max="100" value="100"></label>
+  <div class="checks">
+    <label><input type="checkbox" id="lPlace" checked> Kraji</label>
+    <label><input type="checkbox" id="lPeak" checked> Vrhovi</label>
+    <label><input type="checkbox" id="lCave" checked> Jame (kataster)</label>
+    <label><input type="checkbox" id="lHut" checked> Koče</label>
+  </div>
+  <label>Detajl (LOD) <input id="lod" type="range" min="1" max="4" step="0.1" value="2.2"></label>
+  <label>Poudarek višine <span class="row"><input id="ex" type="range" min="1" max="3" step="0.1" value="1"><span id="exVal" class="val">1:1</span><button id="exReset" title="Ponastavi na resnično višino (1:1)">1:1</button></span></label>
+  <label>Sonce <input id="sun" type="range" min="0" max="360" value="300"></label>
+  <div class="sec">Podzemlje</div>
+  <div class="checks">
+    <label><input type="checkbox" id="ugShow" checked> Jame (3D)</label>
+    <label><input type="checkbox" id="ugXray"> Rentgen</label>
+    <label><input type="checkbox" id="ugLamp" checked> Čelna svetilka</label>
+  </div>
+  <label>Prosojnost terena <span id="terVal" class="val">100 %</span><input id="terOp" type="range" min="0" max="100" value="100"></label>
+  <div id="ugList"></div>
+  <button id="bOver">Pregled celega območja</button>
+  <button id="bLow">Nizek let nad Čreto</button>
+</div>
+<div id="hud" class="box"></div>
+<div id="load">Nalagam teren …</div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TerrainLOD } from './terrain3d.js';
+
+const q = new URLSearchParams(location.search);
+const cE = +(q.get('e') || 497000), cN = +(q.get('n') || 127000), size = +(q.get('size') || 10000);
+const $ = (id) => document.getElementById(id);
+const canvas = $('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0xa9c1d6); scene.fog = new THREE.Fog(0xa9c1d6, 8000, 30000);
+const camera = new THREE.PerspectiveCamera(60, 1, 0.5, 60000); scene.add(camera);
+scene.add(new THREE.HemisphereLight(0xe6efff, 0x4a4632, 1.3));
+const sun = new THREE.DirectionalLight(0xfff1dc, 2.4); scene.add(sun);
+const setSun = (az) => { const a = az * Math.PI / 180; sun.position.set(Math.sin(a) * 1000, 800, -Math.cos(a) * 1000); };
+setSun(300); $('sun').oninput = (e) => setSun(+e.target.value);
+
+// data locations: local Cave Mapper server by default; the static/online build sets window.CAVEMAP_CFG
+const CFG = Object.assign({
+  tiles: '/terrain', worker: '/static/fmdt-worker.js', ortho: null,
+  underground: '/api/underground?map=creta',
+  cave: (id, f) => `/api/cave/${id}/${f}`,
+  labels: (e0, n0, e1, n1) => `/labels?e0=${e0}&n0=${n0}&e1=${e1}&n1=${n1}`,
+}, window.CAVEMAP_CFG || {});
+const terrain = new TerrainLOD(scene, { centreE: cE, centreN: cN, size, baseUrl: CFG.tiles, workerUrl: CFG.worker, orthoUrl: CFG.ortho });
+await terrain.init();
+$('lod').oninput = (e) => terrain.lodFactor = +e.target.value;
+// layers: relief underneath, satellite on top with its own opacity
+const applyLayers = () => {
+  const op = +$('satOp').value / 100;
+  $('satVal').textContent = `${$('satOp').value} %`;
+  $('satOp').disabled = !$('laySat').checked;
+  terrain.setLayers({ relief: $('layRelief').checked, satellite: $('laySat').checked ? op : 0 });
+};
+$('layRelief').onchange = applyLayers; $('laySat').onchange = applyLayers; $('satOp').oninput = applyLayers;
+applyLayers();
+
+// ---- underground: caves built from survey data, placed 1:1 at their entrances
+const ugGroup = new THREE.Group(); ugGroup.name = 'Podzemlje'; scene.add(ugGroup);
+const lamp = new THREE.PointLight(0xfff0d6, 40, 60, 1.6); camera.add(lamp);
+const CAVE_COLORS = [0xe8a33d, 0x4fc3f7, 0xef6f6c, 0x9ccc65, 0xba68c8, 0xffd54f, 0x4db6ac, 0xf48fb1];
+const caves = [];
+async function loadUnderground() {
+  const u = await (await fetch(CFG.underground)).json();
+  for (const [i, c] of u.caves.entries()) {
+    const [V, F] = await Promise.all([fetch(CFG.cave(c.cave, 'verts.f32')).then((r) => r.arrayBuffer()), fetch(CFG.cave(c.cave, 'faces.u32')).then((r) => r.arrayBuffer())]);
+    const v = new Float32Array(V), pos = new Float32Array(v.length);
+    for (let k = 0; k < v.length; k += 3) { pos[k] = v[k]; pos[k + 1] = v[k + 2]; pos[k + 2] = -v[k + 1]; }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setIndex(new THREE.BufferAttribute(new Uint32Array(F), 1)); g.computeVertexNormals();
+    const color = CAVE_COLORS[i % CAVE_COLORS.length];
+    const mesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color, roughness: 0.85, side: THREE.DoubleSide }));
+    const grp = new THREE.Group(); grp.add(mesh); grp.name = c.name;
+    ugGroup.add(grp);
+    const item = { ...c, grp, mesh, color };
+    caves.push(item);
+    const el = document.createElement('div'); el.className = 'cv';
+    el.innerHTML = `<i style="background:#${color.toString(16).padStart(6, '0')}"></i><span>${c.name}</span><small>${c.size.map((x) => x.toFixed(0)).join('×')} m</small>`;
+    el.title = `${c.source || ''}\nvhod ${c.ground?.toFixed(1)} m n.v. · ${c.volume_m3.toFixed(0)} m³`;
+    el.onclick = () => flyToCave(item);
+    $('ugList').appendChild(el);
+  }
+  placeCaves();
+  if (!caves.length) $('ugList').innerHTML = '<small style="color:var(--muted)">Še ni jam — pošlji podatke.</small>';
+}
+function placeCaves() {                          // follows the height exaggeration
+  for (const c of caves) {
+    c.grp.position.copy(terrain.toLocal(c.E, c.N, c.origin_z));
+    c.grp.rotation.set(0, -THREE.MathUtils.degToRad(c.rot || 0), 0);
+    const s = c.scale || 1; c.grp.scale.set(s, s * terrain.exag, s);
+  }
+}
+function applyUnderground() {
+  ugGroup.visible = $('ugShow').checked; lamp.visible = $('ugLamp').checked;
+  const x = $('ugXray').checked;
+  for (const c of caves) { const m = c.mesh.material; m.depthTest = !x; m.transparent = x; m.opacity = x ? 0.92 : 1; c.mesh.renderOrder = x ? 10 : 0; m.needsUpdate = true; }
+  const a = +$('terOp').value / 100; $('terVal').textContent = `${$('terOp').value} %`; terrain.setOpacity(a);
+}
+['ugShow', 'ugXray', 'ugLamp'].forEach((id) => $(id).onchange = applyUnderground); $('terOp').oninput = applyUnderground;
+function flyToCave(c) {
+  const box = new THREE.Box3().setFromObject(c.mesh), ctr = box.getCenter(new THREE.Vector3()), r = Math.max(10, box.getSize(new THREE.Vector3()).length());
+  if (+$('terOp').value > 50) { $('terOp').value = 35; }
+  applyUnderground();
+  setMode('free');
+  look(ctr.clone().add(new THREE.Vector3(r * 0.8, r * 0.9, r * 0.8)), ctr, Math.max(3, r / 5));
+}
+loadUnderground();
+
+// ---- labels: places, peaks, caves (OSM + cave register), drawn as HTML over the 3D view
+const labels = [];
+fetch(CFG.labels(cE - size / 2, cN - size / 2, cE + size / 2, cN + size / 2)).then((r) => r.json()).then((list) => {
+  const rank = { town: 0, village: 1, peak: 2, hamlet: 3, kataster: 3, cave: 3, hut: 3, locality: 4, isolated_dwelling: 5, saddle: 5, church: 6 };
+  for (const l of list) {
+    const el = document.createElement('div'); el.className = 'lb ' + l.kind;
+    const extra = l.kind === 'peak' && l.ele ? `<small>${Math.round(+l.ele)} m</small>` :
+      l.kind === 'kataster' ? `<small>dolžina ${l.length} m · globina ${l.depth} m</small>` : '';
+    el.innerHTML = `<b>${l.name.replace(/</g, '&lt;')}</b>${extra}`; el.style.display = 'none';
+    el.title = l.kind === 'kataster' ? `Kataster jam #${l.id}` : l.kind;
+    $('labels').appendChild(el);
+    labels.push({ ...l, el, rank: rank[l.kind] ?? 6, z: l.ele ? +l.ele : null });
+  }
+  labels.sort((a, b) => a.rank - b.rank);
+});
+const groupOf = (k) => (['peak', 'saddle'].includes(k) ? 'lPeak' : ['kataster', 'cave'].includes(k) ? 'lCave' : k === 'hut' ? 'lHut' : 'lPlace');
+const maxDist = { town: 30000, village: 12000, peak: 9000, hamlet: 5000, kataster: 3500, cave: 3500, hut: 6000, locality: 3000, isolated_dwelling: 2000, saddle: 3000, church: 2500 };
+function drawLabels() {
+  const W = innerWidth, H = innerHeight, taken = [];
+  const v = new THREE.Vector3();
+  for (const l of labels) {
+    let show = $(groupOf(l.kind)).checked;
+    if (show) {
+      const g = terrain.heightAt(l.E, l.N); const z = (g ?? l.z ?? 0) + 2;
+      v.copy(terrain.toLocal(l.E, l.N, z));
+      const d = v.distanceTo(camera.position);
+      if (d > (maxDist[l.kind] || 3000) || (g === null && l.z === null)) show = false;
+      else {
+        v.project(camera);
+        if (v.z > 1 || v.x < -1.1 || v.x > 1.1 || v.y < -1.1 || v.y > 1.1) show = false;
+        else {
+          const x = (v.x + 1) / 2 * W, y = (1 - v.y) / 2 * H, w = l.name.length * 7 + 16, h = 30;
+          if (taken.some((r) => x - w / 2 < r[2] && x + w / 2 > r[0] && y - h < r[3] && y > r[1])) show = false;
+          else { taken.push([x - w / 2, y - h, x + w / 2, y]); l.el.style.left = x + 'px'; l.el.style.top = y + 'px'; l.el.style.opacity = d > (maxDist[l.kind] || 3000) * 0.7 ? 0.7 : 1; }
+        }
+      }
+    }
+    l.el.style.display = show ? '' : 'none';
+  }
+}
+function setExag(v) {                     // height exaggeration: rebuild patches, keep the camera at the same real height
+  const old = terrain.exag; v = Math.round(v * 10) / 10;
+  $('ex').value = v; $('exVal').textContent = v === 1 ? '1:1' : `${v.toFixed(1)}×`;
+  if (v === old) return;
+  camera.position.y *= v / old; orbit.target.y *= v / old;
+  terrain.exag = v;
+  for (const p of terrain.patches.values()) { p.mesh?.geometry.dispose(); p.mesh?.userData.photo?.map?.dispose(); p.mesh?.userData.photo?.dispose(); }
+  terrain.patches.clear();
+  placeCaves();
+}
+$('ex').oninput = (e) => { $('exVal').textContent = +e.target.value === 1 ? '1:1' : `${(+e.target.value).toFixed(1)}×`; };
+$('ex').onchange = (e) => setExag(+e.target.value);
+$('exReset').onclick = () => setExag(1);
+
+function resize() { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+
+// ---- freecam + orbit
+const orbit = new OrbitControls(camera, canvas); orbit.enabled = false; orbit.enableDamping = true; orbit.maxPolarAngle = Math.PI * 0.49;
+let mode = 'free', yaw = 0, pitch = 0, looking = false, speed = 120; const keys = {};
+const sync = () => { const e = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ'); yaw = e.y; pitch = e.x; };
+function setMode(m) {
+  mode = m; $('mFree').classList.toggle('on', m === 'free'); $('mOrbit').classList.toggle('on', m === 'orbit'); orbit.enabled = m === 'orbit';
+  if (m === 'orbit') { const d = new THREE.Vector3(); camera.getWorldDirection(d); orbit.target.copy(camera.position).addScaledVector(d, Math.max(200, camera.position.y - 600)); orbit.update(); } else sync();
+}
+$('mFree').onclick = () => setMode('free'); $('mOrbit').onclick = () => setMode('orbit');
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+canvas.addEventListener('mousedown', (e) => { if (e.button === 2 && mode === 'free') looking = true; });
+addEventListener('mouseup', (e) => { if (e.button === 2) looking = false; });
+addEventListener('mousemove', (e) => { if (looking) { yaw -= e.movementX * 0.0025; pitch = Math.max(-1.55, Math.min(1.55, pitch - e.movementY * 0.0025)); } });
+canvas.addEventListener('wheel', (e) => { if (mode !== 'free') return; e.preventDefault(); speed = Math.max(2, Math.min(5000, speed * (e.deltaY < 0 ? 1.2 : 0.83))); }, { passive: false });
+addEventListener('keydown', (e) => { keys[e.code] = true; if (e.code === 'Tab') { e.preventDefault(); setMode(mode === 'free' ? 'orbit' : 'free'); } });
+addEventListener('keyup', (e) => keys[e.code] = false);
+const look = (pos, tgt, spd) => { camera.position.copy(pos); camera.lookAt(tgt); orbit.target.copy(tgt); sync(); if (spd) speed = spd; };
+const overview = () => look(new THREE.Vector3(size * 0.55, 6500, size * 0.75), new THREE.Vector3(0, 500, 0), 300);
+$('bOver').onclick = overview;
+$('bLow').onclick = () => { const p = terrain.toLocal(496863 - 1200, 127464 - 1500, 950); look(p, terrain.toLocal(496863, 127464, 760), 40); };
+overview();
+
+// ---- loop
+const clock = new THREE.Clock(); let fT = 0, fN = 0, fps = 0;
+function tick() {
+  const dt = Math.min(clock.getDelta(), 0.1);
+  if (mode === 'free') {
+    camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+    const v = new THREE.Vector3((keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0), (keys.KeyE ? 1 : 0) - (keys.KeyQ ? 1 : 0), (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0));
+    if (v.lengthSq()) { const up = v.y; v.y = 0; v.applyQuaternion(camera.quaternion); v.y += up; camera.position.addScaledVector(v.normalize(), speed * (keys.ShiftLeft ? 5 : 1) * dt); }
+  } else orbit.update();
+  // never go underground
+  const en = terrain.toEN(camera.position), g = terrain.heightAt(en.E, en.N);
+  if (g !== null && en.z < g + 1.7) camera.position.y = (g + 1.7) * terrain.exag;
+  terrain.update(camera);
+  renderer.render(scene, camera);
+  if (terrain.frame % 2 === 0) drawLabels();
+  fT += dt; fN++; if (fT > 0.5) { fps = Math.round(fN / fT); fT = 0; fN = 0; }
+  const s = terrain.stats;
+  $('hud').textContent = `D96/TM e ${en.E.toFixed(0)} n ${en.N.toFixed(0)} · ${en.z.toFixed(0)} m n.v.` + (g !== null ? ` (${(en.z - g).toFixed(0)} m nad tlemi)` : '') +
+    ` · ${fps} fps · ${(s.tris / 1e6).toFixed(2)} M trikotnikov · ${s.patches} kosov · ploščice ${s.tilesCached} (${s.tilesLoading} se nalaga) · hitrost ${speed.toFixed(0)} m/s`;
+  if (s.patches > 0) $('load').style.display = 'none';
+  requestAnimationFrame(tick);
+}
+tick();
+window.tv = { terrain, camera, renderer, scene };
+</script>
+</body>
+</html>
