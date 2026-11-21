@@ -40,28 +40,15 @@
   #ctl .row button { padding:3px 8px; }
   #ctl .val { color:var(--text); font-size:12px; min-width:34px; text-align:right; }
   #ctl label > .val { float:right; }
-  #time { left:50%; transform:translateX(-50%); bottom:46px; width:min(760px, calc(100vw - 520px)); min-width:420px; }
-  #time .trow { display:flex; align-items:center; gap:10px; font-size:13px; }
-  #time .trow b { font-size:14px; }
-  #tYears { font-weight:600; color:#fff; }
-  #time .kind { margin-left:auto; font-size:11px; padding:2px 8px; border-radius:10px; text-transform:uppercase; letter-spacing:.5px; }
-  #time .kind.data { background:#2c8a69; } #time .kind.recon { background:#9a6b1f; } #time .kind.model { background:#7a3d8f; }
-  #tSlider { width:100%; accent-color:var(--accent); margin:6px 0 2px; }
-  #tMarks { position:relative; height:22px; }
-  #tMarks button { position:absolute; transform:translateX(-50%); font-size:10.5px; padding:2px 5px; background:#232831; color:var(--text); border:1px solid var(--line); border-radius:5px; cursor:pointer; white-space:nowrap; }
-  #tMarks button.on { background:#2c8a69; border-color:var(--accent); }
-  #tDesc { font-size:12px; color:var(--muted); margin-top:4px; line-height:1.4; min-height:34px; }
   .checks label { flex-direction:row !important; align-items:center; gap:4px !important; color:var(--text) !important; }
 </style>
 <script>
-const ORTHO_YEARS = {"2018": "2018-01-01T00:00:00.000Z/2021-12-31T23:59:59.000Z", "2016": "2016-01-01T00:00:00.000Z", "2009": "2009-01-01T00:00:00.000Z/2011-12-31T23:59:59.000Z", "2006": "2006-01-01T00:00:00.000Z", "2001": "2001-01-01T00:00:00.000Z/2005-12-31T23:59:59.000Z", "1997": "1997-01-01T00:00:00.000Z/2000-12-31T23:59:59.000Z"};
 window.CAVEMAP_CFG = {
-  tiles: 'data', worker: 'fmdt-worker.js?v=5918eeb9',
+  tiles: 'data', worker: 'fmdt-worker.js?v=c7c86714',
   basePhoto: (L, x, y) => 'data/photo/' + L + '/' + x + '_' + y + '.jpg', basePhotoLevels: 4,
-  // GURS orthophoto in D96/TM; a year selects the historical layer (DOF050_Z + TIME) for the time slider
-  ortho: (e0, n0, s, year) => 'https://ipi.eprostor.gov.si/wms-si-gurs-dts/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap'
-    + '&LAYERS=SI.GURS.ZPDZ:' + (year && ORTHO_YEARS[year] ? 'DOF050_Z&TIME=' + ORTHO_YEARS[year] : 'DOF050')
-    + '&STYLES=&SRS=EPSG:3794&BBOX=' + e0 + ',' + n0 + ',' + (e0 + s) + ',' + (n0 + s) + '&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg',
+  // GURS orthophoto DOF050 in D96/TM
+  ortho: (e0, n0, s) => 'https://ipi.eprostor.gov.si/wms-si-gurs-dts/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap'
+    + '&LAYERS=SI.GURS.ZPDZ:DOF050&STYLES=&SRS=EPSG:3794&BBOX=' + e0 + ',' + n0 + ',' + (e0 + s) + ',' + (n0 + s) + '&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg',
   underground: 'data/underground.json',
   cave: (id, f) => 'data/caves/' + id + '/' + f,
   labels: () => 'data/labels.json',
@@ -108,18 +95,12 @@ window.CAVEMAP_CFG = {
   <button id="bOver">Pregled celega območja</button>
   <button id="bLow">Nizek let nad Čreto</button>
 </div>
-<div id="time" class="box">
-  <div class="trow"><b>Čas</b><span id="tYears">danes</span><span id="tKind" class="kind data">podatki</span></div>
-  <input id="tSlider" type="range" min="0" max="1000" value="0">
-  <div id="tMarks"></div>
-  <div id="tDesc"></div>
-</div>
 <div id="hud" class="box"></div>
 <div id="load">Nalagam teren …</div>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { TerrainLOD } from './terrain3d.js?v=5918eeb9';
+import { TerrainLOD } from './terrain3d.js?v=c7c86714';
 
 const q = new URLSearchParams(location.search);
 const cE = +(q.get('e') || 497000), cN = +(q.get('n') || 127000), size = +(q.get('size') || 10000);
@@ -189,9 +170,9 @@ async function loadUnderground() {
   placeCaves();
   if (!caves.length) $('ugList').innerHTML = '<small style="color:var(--muted)">Še ni jam — pošlji podatke.</small>';
 }
-function placeCaves() {                          // follows the height exaggeration and the time model (uplift)
+function placeCaves() {                          // follows the height exaggeration
   for (const c of caves) {
-    c.grp.position.copy(terrain.toLocal(c.E, c.N, c.origin_z - (terrain.tm?.uplift || 0)));
+    c.grp.position.copy(terrain.toLocal(c.E, c.N, c.origin_z));
     c.grp.rotation.set(0, -THREE.MathUtils.degToRad(c.rot || 0), 0);
     const s = c.scale || 1; c.grp.scale.set(s, s * terrain.exag, s);
   }
@@ -211,51 +192,6 @@ function flyToCave(c) {
   look(ctr.clone().add(new THREE.Vector3(r * 0.8, r * 0.9, r * 0.8)), ctr, Math.max(3, r / 5));
 }
 loadUnderground();
-
-// ---- time slider: today -> 500 000 years ago (log scale) with savepoints
-const MAXY = 500000;
-const SAVEPOINTS = [
-  [0, 'danes', 'data', 'Danes: lidar CLSS 2023, satelit DOF 2022–24 (GURS).'],
-  [10, '~2016', 'data', 'Satelit DOF 2016 (GURS). Teren je današnji lidar (2023) — 10 let površja skoraj ne spremeni.'],
-  [28, '~1998', 'data', 'Najstarejši posnetek za to območje: DOF 1997–2000 (črno-bel), na današnjem terenu. Vmes: DOF 2006 (premakni drsnik na ~20 let).'],
-  [50, '~1975', 'recon', 'Rekonstrukcija: brez avtoceste in akumulacije Žovnek — tla pod njima obnovljena iz okolice (nasipi odstranjeni, useki zasuti). Satelitskih posnetkov ni.'],
-  [200, '~1825', 'recon', 'Čas franciscejskega katastra. Površje enako naravnemu (erozija ~5 cm); raba tal (polja, gozd) ni prikazana.'],
-  [1000, '~1025', 'recon', 'Pred 1000 leti: oblika površja skoraj enaka današnji naravni (doline ~25 cm plitvejše).'],
-  [10000, '10 000 let', 'model', 'Zgodnji holocen: konec ledene dobe, gozd se vrača. Doline ~2,5 m plitvejše, kopno ~2 m nižje.'],
-  [20000, '20 000 let', 'model', 'Višek zadnje poledenitve: tundra in stepa namesto gozda, v dolini Savinje nasutje proda (do ~15 m). Ledeniki so bili v višjih Alpah; Čreta je bila verjetno brez ledu.'],
-  [140000, '140 000 let', 'model', 'Predzadnja poledenitev (MIS 6): mrzla stepa, debeli prodni nanosi v dolinah. Doline ~35 m plitvejše, kopno ~28 m nižje.'],
-  [500000, '500 000 let', 'model', 'Pred pol milijona let: doline ~100 m plitvejše (vrezovanje rek ~0,25 mm/leto), kopno ~100 m nižje (tektonsko dvigovanje ~0,2 mm/leto). Ocena — prava pokrajina je bila verjetno precej drugačna.'],
-];
-const yearsFromPos = (p) => (p <= 0 ? 0 : Math.round(10 ** (p / 1000 * Math.log10(MAXY + 1)) - 1));
-const posFromYears = (y) => Math.round(Math.log10(y + 1) / Math.log10(MAXY + 1) * 1000);
-const fmtYears = (y) => (y === 0 ? 'danes' : `pred ${y.toLocaleString('sl-SI')} leti` + (y < 2000 ? ` (~${2026 - y})` : ''));
-for (const [y, lab] of SAVEPOINTS) {
-  const b = document.createElement('button'); b.textContent = lab; b.dataset.y = y;
-  b.style.left = `${posFromYears(y) / 10}%`; b.onclick = () => goTime(y);
-  $('tMarks').appendChild(b);
-}
-if (!terrain.timeAvailable) $('tDesc').textContent = 'Plasti za časovni drsnik za to območje še niso zgrajene — prikazane so samo zgodovinske fotografije.';
-function describe(y) {
-  const sp = [...SAVEPOINTS].reverse().find(([t]) => t <= y) || SAVEPOINTS[0];
-  $('tYears').textContent = fmtYears(y);
-  const kind = y <= 35 ? 'data' : y < 5000 ? 'recon' : 'model';
-  $('tKind').className = 'kind ' + kind; $('tKind').textContent = { data: 'podatki', recon: 'rekonstrukcija', model: 'model' }[kind];
-  $('tDesc').textContent = Math.abs(sp[0] - y) / Math.max(1, sp[0]) < 0.05 ? sp[3] : sp[3].replace(/^[^:]*: /, '') ;
-  document.querySelectorAll('#tMarks button').forEach((b) => b.classList.toggle('on', +b.dataset.y === sp[0] && Math.abs(sp[0] - y) / Math.max(1, sp[0]) < 0.05));
-}
-let satWas = null;
-function goTime(y) {
-  $('tSlider').value = posFromYears(y);
-  const tm = terrain.setTime(y);
-  describe(y);
-  // no photographs before ~1997: show relief (remember the user's satellite choice for later)
-  if (tm.photoYear === null) { if (satWas === null) satWas = $('laySat').checked; $('laySat').checked = false; $('layRelief').checked = true; $('laySat').disabled = true; }
-  else { $('laySat').disabled = false; if (satWas !== null) { $('laySat').checked = satWas; satWas = null; } }
-  applyLayers(); placeCaves();
-}
-$('tSlider').oninput = (e) => describe(yearsFromPos(+e.target.value));
-$('tSlider').onchange = (e) => goTime(yearsFromPos(+e.target.value));
-describe(0);
 
 // ---- labels: places, peaks, caves (OSM + cave register), drawn as HTML over the 3D view
 const labels = [];

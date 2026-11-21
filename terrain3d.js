@@ -11,10 +11,7 @@ export class TerrainLOD {
     // pre-baked photo of the whole area shipped with the site (1 m/px at level 0, tiles of 1000*2^L m)
     this.basePhoto = basePhoto; this.basePhotoLevels = basePhotoLevels; this.baseCache = new Map(); this.baseInflight = 0;
     this.scene = scene; this.baseUrl = baseUrl; this.cE = centreE; this.cN = centreN;
-    this.orthoUrl = orthoUrl || ((e0, n0, S, year) => `/ortho?e0=${e0}&n0=${n0}&s=${S}&px=256${year ? '&year=' + year : ''}`);
-    // time model (years before today): 0 = measured terrain; see setTime()
-    this.years = 0; this.tm = { human: 0, fill: 0, uplift: 0, gravel: 0, climate: 0, photoYear: '' };
-    this.uClimate = { value: 0 };
+    this.orthoUrl = orthoUrl || ((e0, n0, S) => `/ortho?e0=${e0}&n0=${n0}&s=${S}&px=256`);
     this.size = size; this.exag = exaggeration;
     this.area = [centreE - size / 2, centreN - size / 2, centreE + size / 2, centreN + size / 2];
     this.group = new THREE.Group(); this.group.name = 'Terrain'; scene.add(this.group);
@@ -26,21 +23,19 @@ export class TerrainLOD {
     // layers: relief colours at the bottom, satellite photo on top with adjustable opacity
     this.uRelief = { value: 1 };             // 1 = relief colours on, 0 = neutral grey underneath
     this.uPhoto = { value: 1 };              // satellite opacity (0 = off)
-    // ice-age tint: tundra / steppe colours replace forest as uClimate -> 1
-    const CLIMATE = 'vec3 relief = mix(vColor.rgb, vec3(0.56, 0.54, 0.43) * (0.75 + 0.5 * vColor.g), uClimate);\n';
     const base = (shader) => {
-      shader.uniforms.uRelief = this.uRelief; shader.uniforms.uClimate = this.uClimate;
-      shader.fragmentShader = 'uniform float uRelief;\nuniform float uClimate;\n' + shader.fragmentShader
-        .replace('#include <color_fragment>', CLIMATE + 'diffuseColor.rgb = mix(vec3(0.62, 0.62, 0.6), relief, uRelief);');
+      shader.uniforms.uRelief = this.uRelief;
+      shader.fragmentShader = 'uniform float uRelief;\n' + shader.fragmentShader
+        .replace('#include <color_fragment>', 'diffuseColor.rgb = mix(vec3(0.62, 0.62, 0.6), vColor.rgb, uRelief);');
     };
     this.mat = new THREE.MeshLambertMaterial({ vertexColors: true });
     this.mat.onBeforeCompile = base;
     this._photoShader = (shader) => {
-      shader.uniforms.uRelief = this.uRelief; shader.uniforms.uPhoto = this.uPhoto; shader.uniforms.uClimate = this.uClimate;
-      shader.fragmentShader = 'uniform float uRelief;\nuniform float uPhoto;\nuniform float uClimate;\n' + shader.fragmentShader
+      shader.uniforms.uRelief = this.uRelief; shader.uniforms.uPhoto = this.uPhoto;
+      shader.fragmentShader = 'uniform float uRelief;\nuniform float uPhoto;\n' + shader.fragmentShader
         .replace('#include <map_fragment>', '')
-        .replace('#include <color_fragment>', CLIMATE +
-          'vec3 baseCol = mix(vec3(0.62, 0.62, 0.6), relief, uRelief);\n' +
+        .replace('#include <color_fragment>',
+          'vec3 baseCol = mix(vec3(0.62, 0.62, 0.6), vColor.rgb, uRelief);\n' +
           'vec4 photo = texture2D(map, vMapUv);\n' +
           'diffuseColor.rgb = mix(baseCol, photo.rgb, uPhoto);');
     };
@@ -56,16 +51,15 @@ export class TerrainLOD {
   toEN(v) { return { E: v.x + this.cE, N: -v.z + this.cN, z: v.y / this.exag }; }
 
   // ---------------------------------------------------------------- tiles
-  _tile(k, x, y, layer = 'tiles') {
-    const key = layer === 'tiles' ? `${k}/${x}_${y}` : `${layer}:${k}/${x}_${y}`;
+  _tile(k, x, y) {
+    const key = `${k}/${x}_${y}`;
     let t = this.tiles.get(key);
     if (!t) {
       t = { state: 'loading', used: this.frame };
       this.tiles.set(key, t);
-      const index = layer === 'tiles' ? this.index : this.layerIndex?.[layer];
-      if ((index && !index.levels[k]?.has(`${x}_${y}`)) || (layer !== 'tiles' && !index)) { t.state = 'missing'; return t; }
+      if (this.index && !this.index.levels[k]?.has(`${x}_${y}`)) { t.state = 'missing'; return t; }
       const id = this.nextId++; this.pending.set(id, key); this.inflight++;
-      this.worker.postMessage({ id, url: `${this.baseUrl}/${layer}/${k}/${x}_${y}.fmdt` });
+      this.worker.postMessage({ id, url: `${this.baseUrl}/tiles/${k}/${x}_${y}.fmdt` });
     }
     t.used = this.frame; return t;
   }
@@ -74,63 +68,13 @@ export class TerrainLOD {
     const t = this.tiles.get(key); if (!t) return;
     if (m.missing || m.error) { t.state = 'missing'; return; }
     Object.assign(t, { state: 'ready', h: m.h, n: m.n, min: m.min, max: m.max });
-    // lowest ground of the area (from overview tiles) = level of the main river plain, used by the time model
-    if (!key.includes(':') && +key.split('/')[0] >= 3 && Number.isFinite(m.min)) this.zLow = Math.min(this.zLow ?? Infinity, m.min);
   }
   async init() {
     try {
       const j = await (await fetch(`${this.baseUrl}/index.json`)).json();
       this.index = { levels: Object.fromEntries(Object.entries(j.levels).map(([k, v]) => [k, new Set(v)])) };
     } catch { this.index = null; }
-    this.layerIndex = {};                    // optional time-slider layers (natural surface, valley envelope)
-    for (const layer of ['tiles_nat', 'tiles_env']) {
-      try {
-        const j = await (await fetch(`${this.baseUrl}/index_${layer}.json`)).json();
-        this.layerIndex[layer] = { levels: Object.fromEntries(Object.entries(j.levels).map(([k, v]) => [k, new Set(v)])) };
-      } catch { /* layer not built for this area */ }
-    }
   }
-  get timeAvailable() { return !!(this.layerIndex?.tiles_nat && this.layerIndex?.tiles_env); }
-
-  // ---------------------------------------------------------------- time model
-  // years before today -> how the landscape is rebuilt.  0–35: measured terrain + historical photos;
-  // >= 40: human-made ground removed (reconstruction); deep time: rivers had cut less (valleys fill
-  // towards the envelope at ~0.25 mm/yr), the land stood lower (uplift ~0.2 mm/yr), ice ages left
-  // gravel plains on valley floors and tundra instead of forest (illustrative model).
-  setTime(years) {
-    years = Math.max(0, Math.round(years));
-    const GLACIALS = [[20000, 15, 6000], [65000, 8, 8000], [140000, 20, 15000], [250000, 10, 15000], [340000, 12, 15000], [430000, 25, 20000]];
-    let gravel = 0, climate = 0;
-    for (const [t0, g, w] of GLACIALS) { const e = Math.exp(-(((years - t0) / w) ** 2)); gravel += g * e; climate = Math.max(climate, e); }
-    if (years > 9000 && years < 14000) climate = Math.max(climate, 0.25);      // late-glacial / early Holocene
-    const photoYear = years <= 5 ? '' : years <= 15 ? '2016' : years <= 24 ? '2006' : years <= 35 ? '1997' : null;
-    this.tm = { human: years >= 40 ? 1 : 0, fill: 0.00025 * years, uplift: 0.0002 * years, gravel, climate, photoYear };
-    this.uClimate.value = climate;
-    const changed = years !== this.years; this.years = years;
-    if (changed) this.rebuild();
-    return this.tm;
-  }
-  rebuild() {
-    for (const p of this.patches.values()) { p.mesh?.geometry.dispose(); this._freePhoto(p.mesh?.userData); this._dropPlaceholder(p.mesh?.userData); }
-    this.patches.clear();
-  }
-  // height at one node given measured (d), natural (n) and envelope (e) values
-  _model(d, n, e) {
-    const tm = this.tm;
-    if (!Number.isFinite(d)) return d;
-    let z = tm.human && Number.isFinite(n) ? n : d;
-    if (tm.fill > 0 && Number.isFinite(e)) {
-      const D = Math.max(0, e - z);
-      z += D * tm.fill / (D + tm.fill);                         // valleys fill smoothly towards the envelope
-      if (tm.gravel > 0.05) {                                    // ice-age gravel: wide river plains + deep valley floors
-        const plain = this.zLow !== undefined ? Math.min(1, Math.max(0, 1 - (z - this.zLow - 5) / 45)) : 0;
-        const deep = Math.min(1, Math.max(0, (D - 40) / 110));
-        z += tm.gravel * Math.max(plain, deep);
-      }
-    }
-    return z - tm.uplift;
-  }
-  _timeLayers() { return this.years >= 40 && this.timeAvailable; }
 
   // ---------------------------------------------------------------- patches
   _src(S) { return Math.max(0, Math.min(5, Math.floor(Math.log2(S / SEG)))); }
@@ -139,22 +83,7 @@ export class TerrainLOD {
     const tx = Math.floor(e0 / T), ty = Math.floor(n0 / T);
     const t = this._tile(k, tx, ty);
     if (t.state !== 'ready') return t.state === 'missing' ? 'missing' : null;
-    let h = t.h;
-    if (this.years > 0) {                       // apply the time model to a copy of the tile window values
-      let hn = null, he = null;
-      if (this._timeLayers()) {
-        const tn = this._tile(k, tx, ty, 'tiles_nat'), te = this._tile(k, tx, ty, 'tiles_env');
-        if (tn.state === 'loading' || te.state === 'loading') return null;
-        hn = tn.state === 'ready' ? tn.h : null; he = te.state === 'ready' ? te.h : null;
-      }
-      const key = `${this.years}`;
-      if (t.modelKey !== key) {                 // one modelled copy per tile and time
-        const m = new Float32Array(h.length);
-        for (let i = 0; i < h.length; i++) m[i] = this._model(h[i], hn ? hn[i] : NaN, he ? he[i] : NaN);
-        t.modelH = m; t.modelKey = key;
-      }
-      h = t.modelH;
-    }
+    const h = t.h;
     const step = (S / SEG) / sp, n = t.n;
     const c0 = (e0 - tx * T) / sp, r0 = ((ty + 1) * T - (n0 + S)) / sp;
     const V = SEG + 1, skirt = 4 * V;
@@ -237,14 +166,7 @@ export class TerrainLOD {
       t = t2; if (c === 0) c = t.n - 1; if (r === 0) r = t.n - 1;
     }
     const i = Math.min(t.n - 1, r) * t.n + Math.min(t.n - 1, c);
-    let v;
-    if (this.years === 0) v = t.h[i];
-    else if (t.modelKey === `${this.years}`) v = t.modelH[i];
-    else {                                   // neighbour tile not modelled yet: model this one node
-      const key = (L) => `${L}:${k}/${tx}_${ty}`;
-      const tn = this.tiles.get(key('tiles_nat')), te = this.tiles.get(key('tiles_env'));
-      v = this._model(t.h[i], tn?.state === 'ready' ? tn.h[i] : NaN, te?.state === 'ready' ? te.h[i] : NaN);
-    }
+    const v = t.h[i];
     return Number.isFinite(v) ? v : null;
   }
   // move one patch's edge vertices onto the straight lines of coarser neighbours (crack-free joins)
@@ -331,7 +253,7 @@ export class TerrainLOD {
     }
     // satellite photos: patches on screen first, nearest first; until a patch has its own photo it shows the
     // matching part of its parent's photo (so moving closer never leaves holes)
-    const photoOn = this.uPhoto.value > 0.001 && this.tm.photoYear !== null;
+    const photoOn = this.uPhoto.value > 0.001;
     if (photoOn) {
       this._frustum.setFromProjectionMatrix(this._m4.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
       const want = [];
@@ -340,7 +262,7 @@ export class TerrainLOD {
         if (u.photoState === 'none') {
           const cached = this.photoCache.get(this._photoKey(u));
           if (cached) { this._setPhoto(u, cached.tex, cached.from); continue; }
-          if (u.S >= 1000 && this.basePhoto && !this.tm?.photoYear && this.photoSource !== 'esri') {
+          if (u.S >= 1000 && this.basePhoto && this.photoSource !== 'esri') {
             const b = this._baseTex(u, true);                    // big patches: the shipped 1 m photo is sharp enough
             if (b) { const m = this._baseMaterial(u, b); u.photo = m.mat; u.photoTex = m.tex; u.photoState = 'ready'; u.photoFrom = 'base'; this._dropPlaceholder(u); continue; }
             else {
@@ -378,12 +300,10 @@ export class TerrainLOD {
     this.stats = { patches: show.size, tris, tilesLoading: this.inflight, tilesCached: this.tiles.size };
   }
 
-  // satellite sources: GURS orthophoto (primary, also historical years) with Esri World Imagery as backup.
+  // satellite sources: GURS orthophoto (primary) with Esri World Imagery as backup.
   // Both serve images directly in D96/TM (EPSG:3794), so they line up with the terrain exactly.
   _photoUrls(u) {
-    const year = this.tm?.photoYear || '';
-    const gurs = this.orthoUrl(u.e0, u.n0, u.S, year);
-    if (year) return [gurs];                                   // historical photos exist only at GURS
+    const gurs = this.orthoUrl(u.e0, u.n0, u.S);
     const esri = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${u.e0},${u.n0},${u.e0 + u.S},${u.n0 + u.S}&bboxSR=3794&imageSR=3794&size=256,256&format=jpg&f=image`;
     const src = this.photoSource || 'auto';
     if (src === 'gurs') return [gurs];
@@ -391,7 +311,7 @@ export class TerrainLOD {
     const gursBad = (this.photoStats.gursFail >= 3 && this.photoStats.gursOk === 0);
     return gursBad ? [esri, gurs] : [gurs, esri];
   }
-  _photoKey(u) { return `${this.photoSource || 'auto'}|${this.tm?.photoYear || ''}|${u.S}/${u.e0}/${u.n0}`; }
+  _photoKey(u) { return `${this.photoSource || 'auto'}|${u.S}/${u.e0}/${u.n0}`; }
   _setPhoto(u, tex, from) {
     const c = this.photoCache.get(this._photoKey(u)); if (c) c.used = this.frame;
     u.photo = new THREE.MeshLambertMaterial({ map: tex, vertexColors: true });
@@ -417,7 +337,7 @@ export class TerrainLOD {
   }
   // finest shipped photo tile covering patch u that is ready (asks for the ideal one, uses a coarser one meanwhile)
   _baseTex(u, exact = false) {
-    if (!this.basePhoto || this.tm?.photoYear || this.photoSource === 'esri') return null;
+    if (!this.basePhoto || this.photoSource === 'esri') return null;
     if (u.S > 1000 * 2 ** (this.basePhotoLevels - 1)) return null;   // patch bigger than the largest shipped tile
     const L0 = this._baseLevel(u.S);
     const want = this._baseEntry(L0, u.e0, u.n0);
@@ -446,7 +366,7 @@ export class TerrainLOD {
   _placeholder(u) {
     for (let Sa = u.S * 2; Sa <= ROOT; Sa *= 2) {
       const ea = Math.floor(u.e0 / Sa) * Sa, na = Math.floor(u.n0 / Sa) * Sa;
-      const c = this.photoCache.get(`${this.photoSource || 'auto'}|${this.tm?.photoYear || ''}|${Sa}/${ea}/${na}`);
+      const c = this.photoCache.get(`${this.photoSource || 'auto'}|${Sa}/${ea}/${na}`);
       if (!c) continue;
       if (u.ph && u.ph.Sa <= Sa) return u.ph.mat;               // already showing this or a sharper ancestor
       this._dropPlaceholder(u);
@@ -485,7 +405,7 @@ export class TerrainLOD {
         tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
         const from = isGurs ? 'gurs' : 'esri';
         this.photoCache.set(key, { tex, from, used: this.frame });
-        if (key === this._photoKey(u)) this._setPhoto(u, tex, from); else u.photoState = 'none';   // source/year changed meanwhile
+        if (key === this._photoKey(u)) this._setPhoto(u, tex, from); else u.photoState = 'none';   // source changed meanwhile
         if (isGurs) this.photoStats.gursOk++; else this.photoStats.esriOk++;
       }, undefined, () => {
         if (settled) return; settled = true; clearTimeout(timer);
@@ -531,8 +451,7 @@ export class TerrainLOD {
       const T = 1000 * 2 ** k, t = this.tiles.get(`${k}/${Math.floor(E / T)}_${Math.floor(N / T)}`);
       if (t?.state !== 'ready') continue;
       const sp = 2 ** k, c = (E - Math.floor(E / T) * T) / sp, r = ((Math.floor(N / T) + 1) * T - N) / sp;
-      if (this.years > 0 && t.modelKey !== `${this.years}`) continue;        // not modelled for this time yet
-      const h = this.years > 0 ? t.modelH : t.h;
+      const h = t.h;
       const c0 = Math.min(t.n - 2, Math.floor(c)), r0 = Math.min(t.n - 2, Math.floor(r)), fc = c - c0, fr = r - r0, n = t.n;
       const z = h[r0 * n + c0] * (1 - fc) * (1 - fr) + h[r0 * n + c0 + 1] * fc * (1 - fr) + h[(r0 + 1) * n + c0] * (1 - fc) * fr + h[(r0 + 1) * n + c0 + 1] * fc * fr;
       if (Number.isFinite(z)) return z;
