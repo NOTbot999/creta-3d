@@ -53,14 +53,16 @@
   #ctl label > .val { float:right; }
   #tabs { display:flex; gap:0; margin:-2px 0 2px; border-bottom:1px solid var(--line); }
   #tabs button { flex:1; background:none !important; border:none !important; border-bottom:2px solid transparent !important; border-radius:0 !important; color:var(--muted) !important; padding:5px 4px !important; }
+  #tabs span { font-size:10px; }
+  #sKinds, #sCovers { font-size:12px; }
   #tabs button.on { color:var(--text) !important; border-bottom-color:var(--accent) !important; }
   .tab { display:flex; flex-direction:column; gap:6px; }
   .tab[hidden] { display:none; }
   #cList { display:flex; flex-direction:column; gap:2px; max-height:min(330px, calc(100vh - 420px)); overflow-y:auto; }
-  #cList .cd { display:grid; grid-template-columns:10px 1fr auto auto; gap:6px; align-items:center; font-size:12px; padding:3px 6px; border-radius:5px; background:#0f1216; cursor:pointer; }
-  #cList .cd:hover, #cList .cd.sel { outline:1px solid var(--accent); }
-  #cList .cd i { width:10px; height:10px; border-radius:50%; }
-  #cList .cd small { color:var(--muted); font-size:11px; }
+  #sList .cd, #cList .cd { display:grid; grid-template-columns:10px 1fr auto auto; gap:6px; align-items:center; font-size:12px; padding:3px 6px; border-radius:5px; background:#0f1216; cursor:pointer; }
+  #sList .cd:hover, #sList .cd.sel, #cList .cd:hover, #cList .cd.sel { outline:1px solid var(--accent); }
+  #sList .cd i, #cList .cd i { width:10px; height:10px; border-radius:50%; }
+  #sList .cd small, #cList .cd small { color:var(--muted); font-size:11px; }
   #cList .cd em { font-style:normal; font-size:10px; color:#0f1216; background:#9fe0c3; border-radius:3px; padding:0 3px; margin-left:4px; }
   .legend { display:flex; flex-wrap:wrap; gap:3px 10px; font-size:11px; color:var(--muted); }
   .legend i { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:3px; vertical-align:-1px; }
@@ -72,12 +74,12 @@
 </style>
 <script>
 window.CAVEMAP_CFG = {
-  tiles: 'data', worker: 'fmdt-worker.js?v=4fe7b6b9',
+  tiles: 'data', worker: 'fmdt-worker.js?v=4de3972a',
   basePhoto: (L, x, y) => 'data/photo/' + L + '/' + x + '_' + y + '.jpg', basePhotoLevels: 4,
   // GURS orthophoto DOF050 in D96/TM
   ortho: (e0, n0, s) => 'https://ipi.eprostor.gov.si/wms-si-gurs-dts/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap'
     + '&LAYERS=SI.GURS.ZPDZ:DOF050&STYLES=&SRS=EPSG:3794&BBOX=' + e0 + ',' + n0 + ',' + (e0 + s) + ',' + (n0 + s) + '&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg',
-  underground: 'data/underground.json', candidates: 'data/candidates.json', candidatesKml: 'data/candidates.kml',
+  underground: 'data/underground.json', candidates: 'data/candidates.json', candidatesKml: 'data/candidates.kml', structures: 'data/structures.json', structuresKml: 'data/structures.kml',
   cave: (id, f) => 'data/caves/' + id + '/' + f,
   labels: () => 'data/labels.json',
 };
@@ -91,7 +93,7 @@ window.CAVEMAP_CFG = {
   <p><b>Desni klik + vleci</b> = gledanje · <b>WASD</b> premik · <b>Q/E</b> dol/gor · <b>Shift</b> hitreje · <b>kolešček</b> hitrost · <b>Tab</b> orbita · <b>N</b> noclip (pod teren) · <b>klik</b> na teren = GPS koordinate</p></div>
 <div id="labels"></div>
 <div id="ctl" class="box">
-  <div id="tabs"><button id="tView" class="on">Pogled</button><button id="tCand">Vrtače <span id="cCount"></span></button></div>
+  <div id="tabs"><button id="tView" class="on">Pogled</button><button id="tCand">Vrtače <span id="cCount"></span></button><button id="tStr">Strukture <span id="sCount"></span></button></div>
   <div id="tabView" class="tab">
   <div style="display:flex;gap:6px"><button id="mFree" class="on" style="flex:1">Prosti pogled</button><button id="mOrbit" style="flex:1">Orbita</button></div>
   <div class="checks">
@@ -144,6 +146,21 @@ window.CAVEMAP_CFG = {
     <button id="cAll">Pregled celega območja</button>
     <a id="cKml" hidden download="creta_kandidati.kml" style="color:var(--accent);font-size:12px;text-align:center">Prenesi KML (Google Earth / telefon)</a>
   </div>
+  <div id="tabStr" class="tab" hidden>
+    <div class="sec" style="margin-top:0;border:none;padding-top:0">Možne umetne strukture</div>
+    <small id="sInfo" style="color:var(--muted);font-size:11px">Nalagam …</small>
+    <div class="checks">
+      <label><input type="checkbox" id="sShow" checked> Na karti</label>
+      <label><input type="checkbox" id="sRing" checked> Obrisi</label>
+      <label><input type="checkbox" id="sLab" checked> Oznake</label>
+    </div>
+    <div class="sec">Vrsta</div><div class="checks" id="sKinds"></div>
+    <div class="sec">Pokrovnost</div><div class="checks" id="sCovers"></div>
+    <label>Najmanjša ocena <span id="sMinVal" class="val">0.30</span><input id="sMin" type="range" min="0" max="0.9" step="0.05" value="0.3"></label>
+    <div id="sList" style="display:flex;flex-direction:column;gap:2px;max-height:min(280px, calc(100vh - 520px));overflow-y:auto"></div>
+    <small style="color:var(--muted);font-size:11px">Samodejna zaznava — med kandidati je tudi veliko naravnih oblik. Preveri na terenu ali z reliefom (izklopi Satelit v zavihku Pogled).</small>
+    <a id="sKml" hidden download="creta_strukture.kml" style="color:var(--accent);font-size:12px;text-align:center">Prenesi KML (Google Earth / telefon)</a>
+  </div>
 </div>
 <div id="hud" class="box"></div>
 <div id="pinDot" hidden></div>
@@ -159,7 +176,7 @@ window.CAVEMAP_CFG = {
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { TerrainLOD } from './terrain3d.js?v=4fe7b6b9';
+import { TerrainLOD } from './terrain3d.js?v=4de3972a';
 
 const q = new URLSearchParams(location.search);
 const cE = +(q.get('e') || 497000), cN = +(q.get('n') || 127000), size = +(q.get('size') || 10000);
@@ -177,7 +194,7 @@ setSun(300); $('sun').oninput = (e) => setSun(+e.target.value);
 // data locations: local Cave Mapper server by default; the static/online build sets window.CAVEMAP_CFG
 const CFG = Object.assign({
   tiles: '/terrain', worker: '/static/fmdt-worker.js', ortho: null,
-  underground: '/api/underground?map=creta', candidates: '/api/candidates?map=creta', candidatesKml: '/api/candidates.kml?map=creta',
+  underground: '/api/underground?map=creta', candidates: '/api/candidates?map=creta', candidatesKml: '/api/candidates.kml?map=creta', structures: '/api/structures?map=creta', structuresKml: '/api/structures.kml?map=creta',
   cave: (id, f) => `/api/cave/${id}/${f}`,
   labels: (e0, n0, e1, n1) => `/labels?e0=${e0}&n0=${n0}&e1=${e1}&n1=${n1}`,
 }, window.CAVEMAP_CFG || {});
@@ -253,8 +270,9 @@ function flyToCave(c) {
 loadUnderground();
 
 // ---- panel tabs
-const showTab = (t) => { $('tView').classList.toggle('on', t === 'view'); $('tCand').classList.toggle('on', t === 'cand'); $('tabView').hidden = t !== 'view'; $('tabCand').hidden = t !== 'cand'; };
-$('tView').onclick = () => showTab('view'); $('tCand').onclick = () => showTab('cand');
+const TABS = { view: ['tView', 'tabView'], cand: ['tCand', 'tabCand'], str: ['tStr', 'tabStr'] };
+const showTab = (t) => { for (const [k, [b, d]] of Object.entries(TABS)) { $(b).classList.toggle('on', k === t); $(d).hidden = k !== t; } };
+for (const k of Object.keys(TABS)) $(TABS[k][0]).onclick = () => showTab(k);
 
 // ---- sinkhole / pit candidates from the lidar: outline on the ground (circle of the same area) + label
 // All outlines live in ONE line geometry (thousands of candidates stay fast); labels are made only when needed.
@@ -348,6 +366,121 @@ function flyToCand(c) {
 }
 $('cAll').onclick = () => setMode('free') || overview();   // the candidates cover the whole area
 
+// ---- possible man-made structures from the lidar (tools/strukture.py): real footprint outline + label
+const STR_KIND = {
+  kopisce: ['Kopišče', 0x66dd66, 'okrogla ravna ploščad v pobočju (oglarsko kopišče?)'],
+  ploscad: ['Ploščad', 0x33d1e0, 'ravna ploščad, vrezana v strmo pobočje (terasa za objekt?)'],
+  gomila: ['Gomila', 0xff8a50, 'pravilna okrogla vzpetina (gomila, nasip, kup?)'],
+  pravokotnik: ['Pravokotnik', 0xffe14d, 'pravokotna vzpetina ali jama z ostrimi robovi (temelji, ruševina, klet?)'],
+  obris: ['Obris zidov', 0xe46cff, 'pravokoten obris iz nizkih zidov / nasipov (ograda, temelji?)'],
+};
+const STR_NV = 36;
+const strs = []; let strSel = null, strLines = null;
+const strKinds = new Set(), strCovers = new Set();
+function strOutline(s) {                         // footprint in D96: rectangle or ellipse, rotated to the long axis
+  const a = s.angle * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a), hl = s.L / 2, hw = s.W / 2, pts = [];
+  const round = s.kind === 'kopisce' || s.kind === 'gomila';
+  for (let k = 0; k < STR_NV; k++) {
+    let u, v;
+    if (round) { const t = k / STR_NV * Math.PI * 2; u = Math.cos(t) * hl; v = Math.sin(t) * hw; }
+    else {
+      const side = Math.floor(k / (STR_NV / 4)), f = (k % (STR_NV / 4)) / (STR_NV / 4) * 2 - 1;
+      [u, v] = [[f * hl, -hw], [hl, f * hw], [-f * hl, hw], [-hl, -f * hw]][side];
+    }
+    pts.push([s.E + u * ca - v * sa, s.N + u * sa + v * ca]);
+  }
+  return pts;
+}
+async function loadStructures() {
+  let list = [];
+  try { list = (await (await fetch(CFG.structures)).json()).structures || []; } catch { /* layer not available */ }
+  $('sCount').textContent = list.length ? `(${list.length})` : '';
+  if (CFG.structuresKml && list.length) { $('sKml').href = CFG.structuresKml; $('sKml').hidden = false; }
+  if (!list.length) { $('sInfo').textContent = 'Ni podatkov.'; return; }
+  const pos = new Float32Array(list.length * STR_NV * 3), col = new Float32Array(list.length * STR_NV * 3), tmp = new THREE.Color();
+  const frag = document.createDocumentFragment();
+  for (const [i, s0] of list.entries()) {
+    const [kname, color, kdesc] = STR_KIND[s0.kind] || [s0.kind, 0xffffff, ''];
+    const s = { ...s0, i, color, kname, placed: 0 };
+    s.pts = strOutline(s);
+    strKinds.add(s.kind); strCovers.add(s.landcover);
+    tmp.setHex(color); for (let k = 0; k < STR_NV; k++) col.set([tmp.r, tmp.g, tmp.b], (i * STR_NV + k) * 3);
+    s.label = { kind: 'str', name: `${s.id} ${kname}`, E: s.E, N: s.N, z: s.zmid, el: null, rank: 2, str: s,
+      make: () => { const el = document.createElement('div'); el.className = 'lb cand' + (strSel === s ? ' sel' : ''); el.style.setProperty('--c', hex(color));
+        el.innerHTML = `<b>${s.id}</b><small>${kname} · ${s.L.toFixed(0)}×${s.W.toFixed(0)} m</small>`; return el; } };
+    labels.push(s.label);
+    const row = document.createElement('div'); row.className = 'cd';
+    row.innerHTML = `<i style="background:${hex(color)}"></i><span>${s.id} <small>${kname}</small></span><small>${s.L.toFixed(0)}×${s.W.toFixed(0)} m</small><small>${s.score.toFixed(2)}</small>`;
+    row.title = `${kname}: ${kdesc}\n${s.landcover}\nD96/TM e ${s.E.toFixed(1)} n ${s.N.toFixed(1)}\n${s.lat.toFixed(6)}, ${s.lon.toFixed(6)}\n`
+      + `${s.L} × ${s.W} m · ${s.area} m² · višina/globina ${s.height} m\nnaklon robov ${s.edge}° · hrapavost ${s.rough} · ocena ${s.score}`;
+    row.onclick = () => flyToStr(s);
+    s.row = row; frag.appendChild(row); strs.push(s);
+  }
+  $('sList').appendChild(frag);
+  // filter checkboxes for the kinds / land covers present
+  for (const [box, set, nameOf] of [['sKinds', strKinds, (k) => (STR_KIND[k] || [k])[0]], ['sCovers', strCovers, (c) => c]]) {
+    for (const v of set) {
+      const l = document.createElement('label'), cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = true; cb.dataset.v = v; cb.onchange = applyStr;
+      l.append(cb, ' ', nameOf(v)); if (box === 'sKinds') l.title = STR_KIND[v]?.[2] || ''; $(box).appendChild(l);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  strLines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true }));
+  strLines.name = 'Strukture'; strLines.frustumCulled = false; strLines.renderOrder = 5; scene.add(strLines);
+  for (const s of strs) setStrRing(s, false);
+  labels.sort((a, b) => a.rank - b.rank);
+  applyStr();
+}
+function setStrRing(s, drape) {
+  const a = strLines.geometry.attributes.position; let ok = true;
+  for (const [k, [E, N]] of s.pts.entries()) {
+    let z = s.zmid ?? 0;
+    if (drape) { const g = terrain.heightAt(E, N); if (g === null) ok = false; else z = g; }
+    a.setXYZ(s.i * STR_NV + k, E - cE, (z + 0.8) * terrain.exag, -(N - cN));
+  }
+  a.needsUpdate = true;
+  return ok;
+}
+const checkedSet = (box) => new Set([...$(box).querySelectorAll('input')].filter((c) => c.checked).map((c) => c.dataset.v));
+let strKindOn = new Set(), strCoverOn = new Set();
+const strVisible = (s) => $('sShow').checked && s.score >= +$('sMin').value && strKindOn.has(s.kind) && strCoverOn.has(s.landcover);
+function applyStr() {
+  $('sMinVal').textContent = (+$('sMin').value).toFixed(2);
+  if (!strLines) return;
+  strKindOn = checkedSet('sKinds'); strCoverOn = checkedSet('sCovers');
+  const idx = []; let n = 0;
+  for (const s of strs) {
+    const v = strVisible(s); n += v; s.row.style.display = v ? '' : 'none';
+    if (v) for (let k = 0; k < STR_NV; k++) idx.push(s.i * STR_NV + k, s.i * STR_NV + (k + 1) % STR_NV);
+  }
+  strLines.geometry.setIndex(idx); strLines.visible = $('sRing').checked && n > 0;
+  $('sInfo').textContent = `${n} od ${strs.length} prikazanih · samodejno zaznano iz lidarja (DMR 0,5 m) v gozdu in na poljih; ceste, stavbe in naselja izločeni.`;
+}
+['sShow', 'sRing', 'sLab'].forEach((id) => $(id).onchange = applyStr); $('sMin').oninput = applyStr;
+function placeStr() {
+  if (!strLines || !strLines.visible) return;
+  const now = performance.now(), cx = camera.position.x + cE, cn = -camera.position.z + cN, todo = [];
+  for (const s of strs) {
+    if (!strVisible(s)) continue;
+    const d = Math.hypot(s.E - cx, s.N - cn);
+    if (!s.placed || (d < 1500 && now - s.placed > 3000)) todo.push([d, s]);
+  }
+  todo.sort((a, b) => a[0] - b[0]);
+  for (const [, s] of todo.slice(0, 250)) s.placed = setStrRing(s, true) ? now : 0;
+}
+function resetStrRings() { if (!strLines) return; for (const s of strs) { setStrRing(s, false); s.placed = 0; } }
+function flyToStr(s) {
+  const col = strLines.geometry.attributes.color, tmp = new THREE.Color();
+  const paint = (x, h) => { tmp.setHex(h); for (let k = 0; k < STR_NV; k++) col.setXYZ(x.i * STR_NV + k, tmp.r, tmp.g, tmp.b); col.needsUpdate = true; };
+  if (strSel) { strSel.row.classList.remove('sel'); strSel.label.el?.classList.remove('sel'); paint(strSel, strSel.color); }
+  strSel = s; s.row.classList.add('sel'); s.label.el?.classList.add('sel'); paint(s, 0xffffff); s.row.scrollIntoView({ block: 'nearest' });
+  setMode('free');
+  const z = terrain.heightAt(s.E, s.N) ?? s.zmid ?? 450, D = Math.max(70, s.L * 4);
+  look(terrain.toLocal(s.E + D * 0.35, s.N - D, z + D * 0.8), terrain.toLocal(s.E, s.N, z), 20);
+  showPin(s.E, s.N, `${s.id} · ${s.kname} · ${s.L.toFixed(0)}×${s.W.toFixed(0)} m · ${s.landcover}`);
+}
+
 // ---- labels: places, peaks, caves (OSM + cave register), drawn as HTML over the 3D view
 const labels = [];
 fetch(CFG.labels(cE - size / 2, cN - size / 2, cE + size / 2, cN + size / 2)).then((r) => r.json()).then((list) => {
@@ -369,8 +502,8 @@ function drawLabels() {
   const W = innerWidth, H = innerHeight, taken = [];
   const v = new THREE.Vector3();
   for (const l of labels) {
-    let show = l.cand ? candVisible(l.cand) && $('cLab').checked : $(groupOf(l.kind)).checked;
-    if (show && l.cand && Math.hypot(l.E - cE - camera.position.x, -(l.N - cN) - camera.position.z, (l.z ?? 0) * terrain.exag - camera.position.y) > maxDist.cand) show = false;
+    let show = l.cand ? candVisible(l.cand) && $('cLab').checked : l.str ? strVisible(l.str) && $('sLab').checked : $(groupOf(l.kind)).checked;
+    if (show && (l.cand || l.str) && Math.hypot(l.E - cE - camera.position.x, -(l.N - cN) - camera.position.z, (l.z ?? 0) * terrain.exag - camera.position.y) > maxDist.cand) show = false;
     if (show) {
       const g = terrain.heightAt(l.E, l.N); const z = (g ?? l.z ?? 0) + 2;
       v.copy(terrain.toLocal(l.E, l.N, z));
@@ -380,9 +513,10 @@ function drawLabels() {
         v.project(camera);
         if (v.z > 1 || v.x < -1.1 || v.x > 1.1 || v.y < -1.1 || v.y > 1.1) show = false;
         else {
-          const x = (v.x + 1) / 2 * W, y = (1 - v.y) / 2 * H, w = Math.max(l.name.length * 7 + 16, l.cand ? 90 : 0), h = 30;
+          const x = (v.x + 1) / 2 * W, y = (1 - v.y) / 2 * H, w = Math.max(l.name.length * 7 + 16, l.cand || l.str ? 90 : 0), h = 30;
           if (taken.some((r) => x - w / 2 < r[2] && x + w / 2 > r[0] && y - h < r[3] && y > r[1])) show = false;
           else {
+            if (!l.el && l.make) { l.el = l.make(); $('labels').appendChild(l.el); }
             if (!l.el) {                         // candidate label made on first use
               const c = l.cand, el = document.createElement('div'); el.className = 'lb cand' + (candSel === c ? ' sel' : ''); el.style.setProperty('--c', hex(c.color));
               el.innerHTML = `<b>${l.name}</b><small>globina ${c.depth.toFixed(1)} m</small>`; $('labels').appendChild(el); l.el = el;
@@ -403,7 +537,7 @@ function setExag(v) {                     // height exaggeration: rebuild patche
   terrain.resetPatches();
   terrain.patches.clear();
   placeCaves();
-  resetCandRings();
+  resetCandRings(); resetStrRings();
 }
 $('ex').oninput = (e) => { $('exVal').textContent = +e.target.value === 1 ? '1:1' : `${(+e.target.value).toFixed(1)}×`; };
 $('ex').onchange = (e) => setExag(+e.target.value);
@@ -442,6 +576,7 @@ $('bOver').onclick = overview;
 $('bLow').onclick = () => { const p = terrain.toLocal(496863 - 1200, 127464 - 1500, 950); look(p, terrain.toLocal(496863, 127464, 760), 40); };
 overview();
 loadCandidates();
+loadStructures();
 
 // ---- real-world coordinates: left-click the terrain (or pick a candidate) -> GPS position, D96/TM, height
 // D96/TM (EPSG:3794) -> ETRS89/WGS84 lat/lon: inverse transverse Mercator on GRS80 (cm-accurate in Slovenia)
@@ -529,6 +664,7 @@ function tick() {
   renderer.render(scene, camera);
   if (terrain.frame % 2 === 0) drawLabels();
   if (terrain.frame % 20 === 0) placeCands();
+  if (terrain.frame % 20 === 10) placeStr();
   drawPin();
   fT += dt; fN++; if (fT > 0.5) { fps = Math.round(fN / fT); fT = 0; fN = 0; }
   const s = terrain.stats;
