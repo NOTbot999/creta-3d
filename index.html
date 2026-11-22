@@ -61,7 +61,7 @@
 </style>
 <script>
 window.CAVEMAP_CFG = {
-  tiles: 'data', worker: 'fmdt-worker.js?v=c423ee3f',
+  tiles: 'data', worker: 'fmdt-worker.js?v=fa83d63f',
   basePhoto: (L, x, y) => 'data/photo/' + L + '/' + x + '_' + y + '.jpg', basePhotoLevels: 4,
   // GURS orthophoto DOF050 in D96/TM
   ortho: (e0, n0, s) => 'https://ipi.eprostor.gov.si/wms-si-gurs-dts/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap'
@@ -77,12 +77,15 @@ window.CAVEMAP_CFG = {
 <canvas id="c"></canvas>
 <div id="info" class="box"><h1>Čreta · 10 × 10 km · 3D lidar teren</h1>
   <p>Lidar CLSS 2023 (GURS), mreža 1 m, merilo 1:1. Satelit: DOF050 (GURS). Imena: OpenStreetMap, jame: kataster jam. Detajl se nalaga sproti glede na razdaljo.</p>
-  <p><b>Desni klik + vleci</b> = gledanje · <b>WASD</b> premik · <b>Q/E</b> dol/gor · <b>Shift</b> hitreje · <b>kolešček</b> hitrost · <b>Tab</b> orbita</p></div>
+  <p><b>Desni klik + vleci</b> = gledanje · <b>WASD</b> premik · <b>Q/E</b> dol/gor · <b>Shift</b> hitreje · <b>kolešček</b> hitrost · <b>Tab</b> orbita · <b>N</b> noclip (pod teren)</p></div>
 <div id="labels"></div>
 <div id="ctl" class="box">
   <div id="tabs"><button id="tView" class="on">Pogled</button><button id="tCand">Vrtače <span id="cCount"></span></button></div>
   <div id="tabView" class="tab">
   <div style="display:flex;gap:6px"><button id="mFree" class="on" style="flex:1">Prosti pogled</button><button id="mOrbit" style="flex:1">Orbita</button></div>
+  <div class="checks">
+    <label title="Kamera gre lahko skozi teren in pod njega (tipka N)"><input type="checkbox" id="noclip"> Noclip – pod teren (N)</label>
+  </div>
   <div class="checks">
     <label><input type="checkbox" id="layRelief" checked> Relief (spodaj)</label>
     <label><input type="checkbox" id="laySat" checked> Satelit (zgoraj)</label>
@@ -134,7 +137,7 @@ window.CAVEMAP_CFG = {
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { TerrainLOD } from './terrain3d.js?v=c423ee3f';
+import { TerrainLOD } from './terrain3d.js?v=fa83d63f';
 
 const q = new URLSearchParams(location.search);
 const cE = +(q.get('e') || 497000), cN = +(q.get('n') || 127000), size = +(q.get('size') || 10000);
@@ -373,6 +376,14 @@ canvas.addEventListener('mousedown', (e) => { if (e.button === 2 && mode === 'fr
 addEventListener('mouseup', (e) => { if (e.button === 2) looking = false; });
 addEventListener('mousemove', (e) => { if (looking) { yaw -= e.movementX * 0.0025; pitch = Math.max(-1.55, Math.min(1.55, pitch - e.movementY * 0.0025)); } });
 canvas.addEventListener('wheel', (e) => { if (mode !== 'free') return; e.preventDefault(); speed = Math.max(2, Math.min(5000, speed * (e.deltaY < 0 ? 1.2 : 0.83))); }, { passive: false });
+// noclip: fly through the terrain and look at it from below (the terrain is see-through from underneath)
+let noclip = false;
+const setNoclip = (on) => { noclip = on; $('noclip').checked = on; orbit.maxPolarAngle = on ? Math.PI : Math.PI * 0.49; terrain.setTwoSided(on); };
+$('noclip').onchange = (e) => setNoclip(e.target.checked);
+addEventListener('keydown', (e) => {
+  const a = document.activeElement, typing = a?.tagName === 'SELECT' || a?.tagName === 'TEXTAREA' || (a?.tagName === 'INPUT' && a.type === 'text');
+  if (e.code === 'KeyN' && !e.repeat && !typing) setNoclip(!noclip);
+});
 addEventListener('keydown', (e) => { keys[e.code] = true; if (e.code === 'Tab') { e.preventDefault(); setMode(mode === 'free' ? 'orbit' : 'free'); } });
 addEventListener('keyup', (e) => keys[e.code] = false);
 const look = (pos, tgt, spd) => { camera.position.copy(pos); camera.lookAt(tgt); orbit.target.copy(tgt); sync(); if (spd) speed = spd; };
@@ -391,22 +402,22 @@ function tick() {
     const v = new THREE.Vector3((keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0), (keys.KeyE ? 1 : 0) - (keys.KeyQ ? 1 : 0), (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0));
     if (v.lengthSq()) { const up = v.y; v.y = 0; v.applyQuaternion(camera.quaternion); v.y += up; camera.position.addScaledVector(v.normalize(), speed * (keys.ShiftLeft ? 5 : 1) * dt); }
   } else orbit.update();
-  // never go underground
+  // never go underground (unless noclip is on)
   const en = terrain.toEN(camera.position), g = terrain.heightAt(en.E, en.N);
-  if (g !== null && en.z < g + 1.7) camera.position.y = (g + 1.7) * terrain.exag;
+  if (!noclip && g !== null && en.z < g + 1.7) camera.position.y = (g + 1.7) * terrain.exag;
   terrain.update(camera);
   renderer.render(scene, camera);
   if (terrain.frame % 2 === 0) drawLabels();
   if (terrain.frame % 20 === 0) placeCands();
   fT += dt; fN++; if (fT > 0.5) { fps = Math.round(fN / fT); fT = 0; fN = 0; }
   const s = terrain.stats;
-  $('hud').textContent = `D96/TM e ${en.E.toFixed(0)} n ${en.N.toFixed(0)} · ${en.z.toFixed(0)} m n.v.` + (g !== null ? ` (${(en.z - g).toFixed(0)} m nad tlemi)` : '') +
+  $('hud').textContent = `D96/TM e ${en.E.toFixed(0)} n ${en.N.toFixed(0)} · ${en.z.toFixed(0)} m n.v.` + (g !== null ? (en.z >= g ? ` (${(en.z - g).toFixed(0)} m nad tlemi)` : ` (${(g - en.z).toFixed(0)} m POD tlemi)`) : '') + (noclip ? ' · NOCLIP' : '') +
     ` · ${fps} fps · ${(s.tris / 1e6).toFixed(2)} M trikotnikov · ${s.patches} kosov · ploščice ${s.tilesCached} (${s.tilesLoading} se nalaga) · hitrost ${speed.toFixed(0)} m/s`;
   if (s.patches > 0) $('load').style.display = 'none';
   requestAnimationFrame(tick);
 }
 tick();
-window.tv = { terrain, camera, renderer, scene };
+window.tv = { terrain, camera, renderer, scene, look };
 </script>
 </body>
 </html>

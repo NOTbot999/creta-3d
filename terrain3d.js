@@ -437,7 +437,13 @@ export class TerrainLOD {
   }
   _applyAlpha(m) {
     const a = this.alpha ?? 1;
-    m.opacity = a; m.transparent = a < 0.999; m.depthWrite = a > 0.6; m.needsUpdate = true;
+    m.opacity = a; m.transparent = a < 0.999; m.depthWrite = a > 0.6;
+    m.side = this.twoSided ? THREE.DoubleSide : THREE.FrontSide; m.needsUpdate = true;
+  }
+  // draw the underside too (noclip: the ground is seen as a ceiling from below)
+  setTwoSided(on) {
+    this.twoSided = on;
+    this.setOpacity(this.alpha ?? 1);
   }
   // relief: true/false · satellite: opacity 0..1 (0 = off)
   setLayers({ relief, satellite }) {
