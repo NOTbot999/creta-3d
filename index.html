@@ -17,6 +17,17 @@
   #ctl button { background:#232831; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px; cursor:pointer; }
   #ctl button.on { background:#2c8a69; border-color:var(--accent); }
   #hud { left:10px; bottom:10px; font-size:12px; color:var(--muted); }
+  #pin { position:absolute; transform:translate(-50%, calc(-100% - 12px)); font-size:12px; min-width:220px; z-index:5; line-height:1.45; }
+  #pin::after { content:''; position:absolute; left:50%; bottom:-7px; transform:translateX(-50%) rotate(45deg); width:10px; height:10px; background:inherit; border-right:1px solid var(--line); border-bottom:1px solid var(--line); }
+  #pin[hidden] { display:none; }
+  #pin .t { color:#9fe0c3; font-weight:600; margin-bottom:2px; }
+  #pin .ll { font-size:13px; font-weight:600; color:#fff; user-select:all; }
+  #pin small { color:var(--muted); display:block; }
+  #pin .btns { display:flex; gap:6px; margin-top:6px; }
+  #pin .btns a, #pin .btns button { flex:1; text-align:center; background:#232831; color:var(--text); border:1px solid var(--line); border-radius:5px; padding:4px 6px; font:inherit; font-size:11px; cursor:pointer; text-decoration:none; }
+  #pin .x { position:absolute; right:4px; top:2px; background:none; border:none; color:var(--muted); cursor:pointer; font-size:14px; }
+  #pinDot { position:absolute; width:8px; height:8px; margin:-4px 0 0 -4px; border-radius:50%; background:#ff3b6b; box-shadow:0 0 0 2px #fff, 0 0 6px #000; pointer-events:none; z-index:4; }
+  #pinDot[hidden] { display:none; }
   #load { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); font-size:15px; }
   #labels { position:absolute; inset:0; pointer-events:none; overflow:hidden; }
   .lb { position:absolute; transform:translate(-50%,-100%); white-space:nowrap; font-size:12px; color:#fff; text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000; display:flex; flex-direction:column; align-items:center; }
@@ -61,7 +72,7 @@
 </style>
 <script>
 window.CAVEMAP_CFG = {
-  tiles: 'data', worker: 'fmdt-worker.js?v=821d0999',
+  tiles: 'data', worker: 'fmdt-worker.js?v=4fe7b6b9',
   basePhoto: (L, x, y) => 'data/photo/' + L + '/' + x + '_' + y + '.jpg', basePhotoLevels: 4,
   // GURS orthophoto DOF050 in D96/TM
   ortho: (e0, n0, s) => 'https://ipi.eprostor.gov.si/wms-si-gurs-dts/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap'
@@ -77,7 +88,7 @@ window.CAVEMAP_CFG = {
 <canvas id="c"></canvas>
 <div id="info" class="box"><h1>Čreta · 10 × 10 km · 3D lidar teren</h1>
   <p>Lidar CLSS 2023 (GURS), mreža 1 m, merilo 1:1. Satelit: DOF050 (GURS). Imena: OpenStreetMap, jame: kataster jam. Detajl se nalaga sproti glede na razdaljo.</p>
-  <p><b>Desni klik + vleci</b> = gledanje · <b>WASD</b> premik · <b>Q/E</b> dol/gor · <b>Shift</b> hitreje · <b>kolešček</b> hitrost · <b>Tab</b> orbita · <b>N</b> noclip (pod teren)</p></div>
+  <p><b>Desni klik + vleci</b> = gledanje · <b>WASD</b> premik · <b>Q/E</b> dol/gor · <b>Shift</b> hitreje · <b>kolešček</b> hitrost · <b>Tab</b> orbita · <b>N</b> noclip (pod teren) · <b>klik</b> na teren = GPS koordinate</p></div>
 <div id="labels"></div>
 <div id="ctl" class="box">
   <div id="tabs"><button id="tView" class="on">Pogled</button><button id="tCand">Vrtače <span id="cCount"></span></button></div>
@@ -135,11 +146,20 @@ window.CAVEMAP_CFG = {
   </div>
 </div>
 <div id="hud" class="box"></div>
+<div id="pinDot" hidden></div>
+<div id="pin" class="box" hidden>
+  <button class="x" id="pinX" title="Zapri">×</button>
+  <div class="t" id="pinT"></div>
+  <div class="ll" id="pinLL"></div>
+  <small id="pinD96"></small>
+  <small id="pinZ"></small>
+  <div class="btns"><button id="pinCopy">Kopiraj</button><a id="pinMap" target="_blank" rel="noopener">Google Maps</a></div>
+</div>
 <div id="load">Nalagam teren …</div>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { TerrainLOD } from './terrain3d.js?v=821d0999';
+import { TerrainLOD } from './terrain3d.js?v=4fe7b6b9';
 
 const q = new URLSearchParams(location.search);
 const cE = +(q.get('e') || 497000), cN = +(q.get('n') || 127000), size = +(q.get('size') || 10000);
@@ -324,6 +344,7 @@ function flyToCand(c) {
   selectCand(c); setMode('free');
   const z = terrain.heightAt(c.E, c.N) ?? c.ground ?? 450, D = Math.max(90, c.R * 5);
   look(terrain.toLocal(c.E + D * 0.35, c.N - D, z + D * 0.75), terrain.toLocal(c.E, c.N, z), 25);
+  showPin(c.E, c.N, `${c.name} · ${c.type === 'small_pit' ? 'majhna strma jama' : 'vrtača / kotanja'} · globina ${c.depth.toFixed(1)} m`);
 }
 $('cAll').onclick = () => setMode('free') || overview();   // the candidates cover the whole area
 
@@ -422,6 +443,76 @@ $('bLow').onclick = () => { const p = terrain.toLocal(496863 - 1200, 127464 - 15
 overview();
 loadCandidates();
 
+// ---- real-world coordinates: left-click the terrain (or pick a candidate) -> GPS position, D96/TM, height
+// D96/TM (EPSG:3794) -> ETRS89/WGS84 lat/lon: inverse transverse Mercator on GRS80 (cm-accurate in Slovenia)
+function d96ToWgs(E, N) {
+  const a = 6378137, f = 1 / 298.257222101, k0 = 0.9999, lon0 = 15 * Math.PI / 180;
+  const e2 = f * (2 - f), ep2 = e2 / (1 - e2), x = E - 500000, y = N + 5000000;
+  const mu = y / k0 / (a * (1 - e2 / 4 - 3 * e2 ** 2 / 64 - 5 * e2 ** 3 / 256));
+  const e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
+  const p1 = mu + (3 * e1 / 2 - 27 * e1 ** 3 / 32) * Math.sin(2 * mu) + (21 * e1 ** 2 / 16 - 55 * e1 ** 4 / 32) * Math.sin(4 * mu)
+    + (151 * e1 ** 3 / 96) * Math.sin(6 * mu) + (1097 * e1 ** 4 / 512) * Math.sin(8 * mu);
+  const s1 = Math.sin(p1), c1 = Math.cos(p1), C1 = ep2 * c1 ** 2, T1 = Math.tan(p1) ** 2;
+  const N1 = a / Math.sqrt(1 - e2 * s1 ** 2), R1 = a * (1 - e2) / (1 - e2 * s1 ** 2) ** 1.5, D = x / (N1 * k0);
+  const lat = p1 - (N1 * Math.tan(p1) / R1) * (D ** 2 / 2 - (5 + 3 * T1 + 10 * C1 - 4 * C1 ** 2 - 9 * ep2) * D ** 4 / 24
+    + (61 + 90 * T1 + 298 * C1 + 45 * T1 ** 2 - 252 * ep2 - 3 * C1 ** 2) * D ** 6 / 720);
+  const lon = lon0 + (D - (1 + 2 * T1 + C1) * D ** 3 / 6 + (5 - 2 * C1 + 28 * T1 - 3 * C1 ** 2 + 8 * ep2 + 24 * T1 ** 2) * D ** 5 / 120) / c1;
+  return [lat * 180 / Math.PI, lon * 180 / Math.PI];
+}
+// where does the view ray through a screen point meet the ground (also from below in noclip)
+function pickGround(px, py) {
+  const rc = new THREE.Raycaster(); rc.setFromCamera(new THREE.Vector2(px / innerWidth * 2 - 1, -(py / innerHeight) * 2 + 1), camera);
+  const o = rc.ray.origin, d = rc.ray.direction, p = new THREE.Vector3();
+  const below = (t) => { p.copy(o).addScaledVector(d, t); const en = terrain.toEN(p), g = terrain.heightAt(en.E, en.N); return g === null ? null : en.z < g; };
+  const start = !!below(0);
+  let prev = 0, t = 0.5;
+  while (t < 40000) {
+    const b = below(t);
+    if (b !== null && b !== start) {
+      let lo = prev, hi = t;
+      for (let i = 0; i < 30; i++) { const m = (lo + hi) / 2; if (!!below(m) === start) lo = m; else hi = m; }
+      p.copy(o).addScaledVector(d, hi); return terrain.toEN(p);
+    }
+    prev = t; t += Math.max(0.5, t * 0.005);
+  }
+  return null;
+}
+let pin = null;
+function showPin(E, N, title = '') {
+  const z = terrain.heightAt(E, N), [lat, lon] = d96ToWgs(E, N), ll = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+  pin = { E, N, z, ll };
+  $('pinT').textContent = title; $('pinT').hidden = !title;
+  $('pinLL').textContent = ll;
+  $('pinD96').textContent = `D96/TM  e ${E.toFixed(1)}  n ${N.toFixed(1)}`;
+  $('pinZ').textContent = z !== null ? `${z.toFixed(1)} m n.v.` : '';
+  $('pinMap').href = `https://www.google.com/maps/search/?api=1&query=${lat.toFixed(6)},${lon.toFixed(6)}`;
+  $('pinCopy').textContent = 'Kopiraj';
+  $('pin').hidden = false; $('pinDot').hidden = false;
+}
+$('pinX').onclick = () => { pin = null; $('pin').hidden = true; $('pinDot').hidden = true; };
+$('pinCopy').onclick = async () => {
+  const txt = `${pin.ll}\nD96/TM e ${pin.E.toFixed(1)} n ${pin.N.toFixed(1)}` + (pin.z !== null ? `\n${pin.z.toFixed(1)} m n.v.` : '');
+  try { await navigator.clipboard.writeText(txt); $('pinCopy').textContent = 'Kopirano ✓'; } catch { $('pinCopy').textContent = 'Označi in kopiraj'; }
+};
+function drawPin() {
+  if (!pin) return;
+  const z = pin.z ?? terrain.heightAt(pin.E, pin.N) ?? 0, v = terrain.toLocal(pin.E, pin.N, z).project(camera);
+  const vis = v.z < 1 && Math.abs(v.x) < 1.2 && Math.abs(v.y) < 1.2;
+  for (const id of ['pin', 'pinDot']) {
+    const el = $(id); el.style.visibility = vis ? '' : 'hidden';
+    el.style.left = (v.x + 1) / 2 * innerWidth + 'px'; el.style.top = (1 - v.y) / 2 * innerHeight + 'px';
+  }
+}
+// a short left click (not a drag) picks the spot
+let downAt = null;
+canvas.addEventListener('pointerdown', (e) => { if (e.button === 0) downAt = [e.clientX, e.clientY, performance.now()]; });
+canvas.addEventListener('pointerup', (e) => {
+  if (e.button !== 0 || !downAt) return;
+  const [x, y, t] = downAt; downAt = null;
+  if (Math.hypot(e.clientX - x, e.clientY - y) > 5 || performance.now() - t > 600) return;
+  const g = pickGround(e.clientX, e.clientY); if (g) showPin(g.E, g.N);
+});
+
 // ---- loop
 const clock = new THREE.Clock(); let fT = 0, fN = 0, fps = 0;
 function tick() {
@@ -438,6 +529,7 @@ function tick() {
   renderer.render(scene, camera);
   if (terrain.frame % 2 === 0) drawLabels();
   if (terrain.frame % 20 === 0) placeCands();
+  drawPin();
   fT += dt; fN++; if (fT > 0.5) { fps = Math.round(fN / fT); fT = 0; fN = 0; }
   const s = terrain.stats;
   $('hud').textContent = `D96/TM e ${en.E.toFixed(0)} n ${en.N.toFixed(0)} · ${en.z.toFixed(0)} m n.v.` + (g !== null ? (en.z >= g ? ` (${(en.z - g).toFixed(0)} m nad tlemi)` : ` (${(g - en.z).toFixed(0)} m POD tlemi)`) : '') + (noclip ? ' · NOCLIP' : '') +
