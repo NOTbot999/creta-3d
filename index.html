@@ -74,7 +74,7 @@
 </style>
 <script>
 window.CAVEMAP_CFG = {
-  tiles: 'data', worker: 'fmdt-worker.js?v=4de3972a',
+  tiles: 'data', worker: 'fmdt-worker.js?v=4cc27066',
   basePhoto: (L, x, y) => 'data/photo/' + L + '/' + x + '_' + y + '.jpg', basePhotoLevels: 4,
   // GURS orthophoto DOF050 in D96/TM
   ortho: (e0, n0, s) => 'https://ipi.eprostor.gov.si/wms-si-gurs-dts/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap'
@@ -176,7 +176,7 @@ window.CAVEMAP_CFG = {
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { TerrainLOD } from './terrain3d.js?v=4de3972a';
+import { TerrainLOD } from './terrain3d.js?v=4cc27066';
 
 const q = new URLSearchParams(location.search);
 const cE = +(q.get('e') || 497000), cN = +(q.get('n') || 127000), size = +(q.get('size') || 10000);
@@ -370,7 +370,7 @@ $('cAll').onclick = () => setMode('free') || overview();   // the candidates cov
 const STR_KIND = {
   kopisce: ['Kopišče', 0x66dd66, 'okrogla ravna ploščad v pobočju (oglarsko kopišče?)'],
   ploscad: ['Ploščad', 0x33d1e0, 'ravna ploščad, vrezana v strmo pobočje (terasa za objekt?)'],
-  gomila: ['Gomila', 0xff8a50, 'pravilna okrogla vzpetina (gomila, nasip, kup?)'],
+  gomila: ['Gomila', 0xff8a50, 'pravilna okrogla vzpetina (gomila, nasip, kup?) — najmanj zanesljivo, privzeto skrito'],
   pravokotnik: ['Pravokotnik', 0xffe14d, 'pravokotna vzpetina ali jama z ostrimi robovi (temelji, ruševina, klet?)'],
   obris: ['Obris zidov', 0xe46cff, 'pravokoten obris iz nizkih zidov / nasipov (ograda, temelji?)'],
 };
@@ -420,7 +420,7 @@ async function loadStructures() {
   // filter checkboxes for the kinds / land covers present
   for (const [box, set, nameOf] of [['sKinds', strKinds, (k) => (STR_KIND[k] || [k])[0]], ['sCovers', strCovers, (c) => c]]) {
     for (const v of set) {
-      const l = document.createElement('label'), cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = true; cb.dataset.v = v; cb.onchange = applyStr;
+      const l = document.createElement('label'), cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !(box === 'sKinds' && v === 'gomila'); cb.dataset.v = v; cb.onchange = applyStr;
       l.append(cb, ' ', nameOf(v)); if (box === 'sKinds') l.title = STR_KIND[v]?.[2] || ''; $(box).appendChild(l);
     }
   }
