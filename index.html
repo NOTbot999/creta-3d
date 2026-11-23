@@ -74,27 +74,30 @@
 </style>
 <script>
 window.CAVEMAP_CFG = {
-  tiles: 'data', worker: 'fmdt-worker.js?v=4cc27066',
+  tiles: 'data', worker: 'fmdt-worker.js?v=af4f0cdd',
   basePhoto: (L, x, y) => 'data/photo/' + L + '/' + x + '_' + y + '.jpg', basePhotoLevels: 4,
   // GURS orthophoto DOF050 in D96/TM
   ortho: (e0, n0, s) => 'https://ipi.eprostor.gov.si/wms-si-gurs-dts/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap'
     + '&LAYERS=SI.GURS.ZPDZ:DOF050&STYLES=&SRS=EPSG:3794&BBOX=' + e0 + ',' + n0 + ',' + (e0 + s) + ',' + (n0 + s) + '&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg',
-  underground: 'data/underground.json', candidates: 'data/candidates.json', candidatesKml: 'data/candidates.kml', structures: 'data/structures.json', structuresKml: 'data/structures.kml',
+  underground: 'data/{a}/underground.json', candidates: 'data/{a}/candidates.json', candidatesKml: 'data/{a}/candidates.kml',
+  structures: 'data/{a}/structures.json', structuresKml: 'data/{a}/structures.kml',
   cave: (id, f) => 'data/caves/' + id + '/' + f,
-  labels: () => 'data/labels.json',
+  labels: () => 'data/' + (new URLSearchParams(location.search).get('a') || 'creta') + '/labels.json',
 };
 </script>
 <script type="importmap">{ "imports": { "three": "./vendor/three/build/three.module.js", "three/addons/": "./vendor/three/examples/jsm/" } }</script>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="info" class="box"><h1>Čreta · 10 × 10 km · 3D lidar teren</h1>
+<div id="info" class="box"><h1><span id="areaName">Čreta</span> · 10 × 10 km · 3D lidar teren</h1>
   <p>Lidar CLSS 2023 (GURS), mreža 1 m, merilo 1:1. Satelit: DOF050 (GURS). Imena: OpenStreetMap, jame: kataster jam. Detajl se nalaga sproti glede na razdaljo.</p>
   <p><b>Desni klik + vleci</b> = gledanje · <b>WASD</b> premik · <b>Q/E</b> dol/gor · <b>Shift</b> hitreje · <b>kolešček</b> hitrost · <b>Tab</b> orbita · <b>N</b> noclip (pod teren) · <b>klik</b> na teren = GPS koordinate</p></div>
 <div id="labels"></div>
 <div id="ctl" class="box">
   <div id="tabs"><button id="tView" class="on">Pogled</button><button id="tCand">Vrtače <span id="cCount"></span></button><button id="tStr">Strukture <span id="sCount"></span></button></div>
   <div id="tabView" class="tab">
+  <label>Območje
+    <select id="area" style="background:#0f1216;color:var(--text);border:1px solid var(--line);border-radius:5px;padding:3px"></select></label>
   <div style="display:flex;gap:6px"><button id="mFree" class="on" style="flex:1">Prosti pogled</button><button id="mOrbit" style="flex:1">Orbita</button></div>
   <div class="checks">
     <label title="Kamera gre lahko skozi teren in pod njega (tipka N)"><input type="checkbox" id="noclip"> Noclip – pod teren (N)</label>
@@ -128,7 +131,7 @@ window.CAVEMAP_CFG = {
   <label>Prosojnost terena <span id="terVal" class="val">100 %</span><input id="terOp" type="range" min="0" max="100" value="100"></label>
   <div id="ugList"></div>
   <button id="bOver">Pregled celega območja</button>
-  <button id="bLow">Nizek let nad Čreto</button>
+  <button id="bLow">Nizek let nad središčem</button>
   </div>
   <div id="tabCand" class="tab" hidden>
     <div class="sec" style="margin-top:0;border:none;padding-top:0">Kandidati iz lidarja</div>
@@ -144,7 +147,7 @@ window.CAVEMAP_CFG = {
     <div class="legend"><span><i style="background:#ff4d4d"></i>≥ 5 m</span><span><i style="background:#ff9d3c"></i>2–5 m</span><span><i style="background:#ffd54f"></i>1–2 m</span><span><i style="background:#8fc8ff"></i>&lt; 1 m</span></div>
     <div id="cList"></div>
     <button id="cAll">Pregled celega območja</button>
-    <a id="cKml" hidden download="creta_kandidati.kml" style="color:var(--accent);font-size:12px;text-align:center">Prenesi KML (Google Earth / telefon)</a>
+    <a id="cKml" hidden download="kandidati.kml" style="color:var(--accent);font-size:12px;text-align:center">Prenesi KML (Google Earth / telefon)</a>
   </div>
   <div id="tabStr" class="tab" hidden>
     <div class="sec" style="margin-top:0;border:none;padding-top:0">Možne umetne strukture</div>
@@ -159,7 +162,7 @@ window.CAVEMAP_CFG = {
     <label>Najmanjša ocena <span id="sMinVal" class="val">0.30</span><input id="sMin" type="range" min="0" max="0.9" step="0.05" value="0.3"></label>
     <div id="sList" style="display:flex;flex-direction:column;gap:2px;max-height:min(280px, calc(100vh - 520px));overflow-y:auto"></div>
     <small style="color:var(--muted);font-size:11px">Samodejna zaznava — med kandidati je tudi veliko naravnih oblik. Preveri na terenu ali z reliefom (izklopi Satelit v zavihku Pogled).</small>
-    <a id="sKml" hidden download="creta_strukture.kml" style="color:var(--accent);font-size:12px;text-align:center">Prenesi KML (Google Earth / telefon)</a>
+    <a id="sKml" hidden download="strukture.kml" style="color:var(--accent);font-size:12px;text-align:center">Prenesi KML (Google Earth / telefon)</a>
   </div>
 </div>
 <div id="hud" class="box"></div>
@@ -176,11 +179,21 @@ window.CAVEMAP_CFG = {
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { TerrainLOD } from './terrain3d.js?v=4cc27066';
+import { TerrainLOD } from './terrain3d.js?v=af4f0cdd';
 
 const q = new URLSearchParams(location.search);
-const cE = +(q.get('e') || 497000), cN = +(q.get('n') || 127000), size = +(q.get('size') || 10000);
 const $ = (id) => document.getElementById(id);
+// 10 x 10 km areas (D96/TM centre); ?a=<key> picks one, the selector reloads the page with the other area
+const AREAS = {
+  creta: { name: 'Čreta', e: 497000, n: 127000 },
+  trbovlje: { name: 'Trbovlje – Hrastnik', e: 505000, n: 112000 },
+};
+const A = AREAS[q.get('a')] ? q.get('a') : 'creta', AREA = AREAS[A];
+const cE = +(q.get('e') || AREA.e), cN = +(q.get('n') || AREA.n), size = +(q.get('size') || 10000);
+$('areaName').textContent = AREA.name; document.title = document.title.replace('Čreta', AREA.name);
+for (const [k, v] of Object.entries(AREAS)) $('area').add(new Option(v.name, k, false, k === A));
+$('area').onchange = (e) => { location.search = e.target.value === 'creta' ? '' : `?a=${e.target.value}`; };
+$('cKml').download = `${A}_kandidati.kml`; $('sKml').download = `${A}_strukture.kml`;
 const canvas = $('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
@@ -194,10 +207,11 @@ setSun(300); $('sun').oninput = (e) => setSun(+e.target.value);
 // data locations: local Cave Mapper server by default; the static/online build sets window.CAVEMAP_CFG
 const CFG = Object.assign({
   tiles: '/terrain', worker: '/static/fmdt-worker.js', ortho: null,
-  underground: '/api/underground?map=creta', candidates: '/api/candidates?map=creta', candidatesKml: '/api/candidates.kml?map=creta', structures: '/api/structures?map=creta', structuresKml: '/api/structures.kml?map=creta',
+  underground: '/api/underground?map={a}', candidates: '/api/candidates?map={a}', candidatesKml: '/api/candidates.kml?map={a}', structures: '/api/structures?map={a}', structuresKml: '/api/structures.kml?map={a}',
   cave: (id, f) => `/api/cave/${id}/${f}`,
   labels: (e0, n0, e1, n1) => `/labels?e0=${e0}&n0=${n0}&e1=${e1}&n1=${n1}`,
 }, window.CAVEMAP_CFG || {});
+for (const k of Object.keys(CFG)) if (typeof CFG[k] === 'string') CFG[k] = CFG[k].replaceAll('{a}', A);   // per-area data
 const terrain = new TerrainLOD(scene, { centreE: cE, centreN: cN, size, baseUrl: CFG.tiles, workerUrl: CFG.worker, orthoUrl: CFG.ortho,
   basePhoto: CFG.basePhoto || null, basePhotoLevels: CFG.basePhotoLevels || 0 });
 await terrain.init();
@@ -573,7 +587,7 @@ addEventListener('keyup', (e) => keys[e.code] = false);
 const look = (pos, tgt, spd) => { camera.position.copy(pos); camera.lookAt(tgt); orbit.target.copy(tgt); sync(); if (spd) speed = spd; };
 const overview = () => look(new THREE.Vector3(size * 0.55, 6500, size * 0.75), new THREE.Vector3(0, 500, 0), 300);
 $('bOver').onclick = overview;
-$('bLow').onclick = () => { const p = terrain.toLocal(496863 - 1200, 127464 - 1500, 950); look(p, terrain.toLocal(496863, 127464, 760), 40); };
+$('bLow').onclick = () => { const z = terrain.heightAt(cE, cN) ?? 500; look(terrain.toLocal(cE - 1200, cN - 1500, z + 190), terrain.toLocal(cE, cN, z), 40); };
 overview();
 loadCandidates();
 loadStructures();
