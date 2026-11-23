@@ -7,8 +7,9 @@ const ROOT = 32000;              // root patch = one level-5 tile (32 km)
 const MIN_PATCH = 125;           // smallest patch: 125 m at 1 m spacing
 
 export class TerrainLOD {
-  constructor(scene, { baseUrl = '/terrain', workerUrl = '/static/fmdt-worker.js', orthoUrl = null, basePhoto = null, basePhotoLevels = 0, centreE, centreN, size, exaggeration = 1 } = {}) {
+  constructor(scene, { baseUrl = '/terrain', indexUrl = null, workerUrl = '/static/fmdt-worker.js', orthoUrl = null, basePhoto = null, basePhotoLevels = 0, centreE, centreN, size, exaggeration = 1 } = {}) {
     // pre-baked photo of the whole area shipped with the site (1 m/px at level 0, tiles of 1000*2^L m)
+    this.indexUrl = indexUrl;
     this.basePhoto = basePhoto; this.basePhotoLevels = basePhotoLevels; this.baseCache = new Map(); this.baseInflight = 0;
     this.scene = scene; this.baseUrl = baseUrl; this.cE = centreE; this.cN = centreN;
     this.orthoUrl = orthoUrl || ((e0, n0, S) => `/ortho?e0=${e0}&n0=${n0}&s=${S}&px=256`);
@@ -71,7 +72,7 @@ export class TerrainLOD {
   }
   async init() {
     try {
-      const j = await (await fetch(`${this.baseUrl}/index.json`)).json();
+      const j = await (await fetch(this.indexUrl || `${this.baseUrl}/index.json`)).json();
       this.index = { levels: Object.fromEntries(Object.entries(j.levels).map(([k, v]) => [k, new Set(v)])) };
     } catch { this.index = null; }
   }

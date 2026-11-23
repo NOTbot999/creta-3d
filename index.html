@@ -74,7 +74,7 @@
 </style>
 <script>
 window.CAVEMAP_CFG = {
-  tiles: 'data', worker: 'fmdt-worker.js?v=af4f0cdd',
+  tiles: 'data', tilesIndex: 'data/index.json?v=1569117f', worker: 'fmdt-worker.js?v=c22f5cd3',
   basePhoto: (L, x, y) => 'data/photo/' + L + '/' + x + '_' + y + '.jpg', basePhotoLevels: 4,
   // GURS orthophoto DOF050 in D96/TM
   ortho: (e0, n0, s) => 'https://ipi.eprostor.gov.si/wms-si-gurs-dts/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap'
@@ -179,7 +179,7 @@ window.CAVEMAP_CFG = {
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { TerrainLOD } from './terrain3d.js?v=af4f0cdd';
+import { TerrainLOD } from './terrain3d.js?v=c22f5cd3';
 
 const q = new URLSearchParams(location.search);
 const $ = (id) => document.getElementById(id);
@@ -212,7 +212,7 @@ const CFG = Object.assign({
   labels: (e0, n0, e1, n1) => `/labels?e0=${e0}&n0=${n0}&e1=${e1}&n1=${n1}`,
 }, window.CAVEMAP_CFG || {});
 for (const k of Object.keys(CFG)) if (typeof CFG[k] === 'string') CFG[k] = CFG[k].replaceAll('{a}', A);   // per-area data
-const terrain = new TerrainLOD(scene, { centreE: cE, centreN: cN, size, baseUrl: CFG.tiles, workerUrl: CFG.worker, orthoUrl: CFG.ortho,
+const terrain = new TerrainLOD(scene, { centreE: cE, centreN: cN, size, baseUrl: CFG.tiles, indexUrl: CFG.tilesIndex || null, workerUrl: CFG.worker, orthoUrl: CFG.ortho,
   basePhoto: CFG.basePhoto || null, basePhotoLevels: CFG.basePhotoLevels || 0 });
 await terrain.init();
 terrain.preloadBase();
