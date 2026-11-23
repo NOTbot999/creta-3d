@@ -14,6 +14,9 @@
   #info h1 { font-size:15px; margin:0 0 4px; }
   #info p { margin:4px 0; color:var(--muted); font-size:12px; }
   #info a { color:var(--accent); }
+  #back { display:inline-block; margin:-2px 0 8px; padding:4px 10px; border-radius:5px; background:#232831; border:1px solid var(--line);
+    color:var(--text) !important; text-decoration:none; font-size:12px; }
+  #back:hover { background:#2d3440; }
   #areas { display:flex; flex-direction:column; gap:3px; margin-top:6px; }
   #areas a { display:flex; align-items:center; gap:6px; text-decoration:none; color:var(--text); padding:3px 6px; border-radius:5px; background:#232831; }
   #areas a:hover { background:#2d3440; }
@@ -34,6 +37,7 @@
 <body>
 <div id="map"></div>
 <div id="info" class="box">
+  <a id="back" href="#">← Nazaj v 3D</a>
   <h1>Slovenija · kvadrati D96/TM</h1>
   <p>Modra mreža: kvadrati 10 × 10 km, označeni z <b>E / N</b> spodnjega levega vogala v km. Ob povečavi se pokažejo vsi lidarski listi 1 × 1 km (<code>DMR_E_N</code>). <b>Rdeče</b>: območja, ki so že v 3D aplikaciji.</p>
   <p>Klik na karto = list, kvadrat in GPS koordinate.</p>
@@ -43,6 +47,11 @@
 <script src="vendor/leaflet/leaflet.js"></script>
 <script>
 const VIEWER = './';                       // the 3D viewer (the static build links './')
+// back: return to the 3D view we came from (keeps its area); opened directly -> the default area
+const back = document.getElementById('back'); back.href = VIEWER;
+back.onclick = (e) => {
+  if (document.referrer && new URL(document.referrer).origin === location.origin && history.length > 1) { e.preventDefault(); history.back(); }
+};
 
 // D96/TM (EPSG:3794) <-> ETRS89 lat/lon: transverse Mercator on GRS80 (cm-accurate in Slovenia)
 const A = 6378137, F = 1 / 298.257222101, K0 = 0.9999, LON0 = 15 * Math.PI / 180;
