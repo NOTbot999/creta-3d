@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="sl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slovenija – kvadrati D96/TM</title>
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<style>
+  :root { --bg:#16191e; --text:#e8ecf1; --muted:#9aa4b1; --line:#2c323b; --accent:#5ec29a; }
+  html, body { margin:0; height:100%; background:var(--bg); font:13px/1.4 system-ui, sans-serif; color:var(--text); }
+  #map { position:absolute; inset:0; background:#dfe5ea; }
+  .box { position:absolute; z-index:1000; background:rgba(22,25,30,.92); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  #info { left:12px; top:12px; max-width:min(340px, calc(100vw - 48px)); }
+  #info h1 { font-size:15px; margin:0 0 4px; }
+  #info p { margin:4px 0; color:var(--muted); font-size:12px; }
+  #info a { color:var(--accent); }
+  #areas { display:flex; flex-direction:column; gap:3px; margin-top:6px; }
+  #areas a { display:flex; align-items:center; gap:6px; text-decoration:none; color:var(--text); padding:3px 6px; border-radius:5px; background:#232831; }
+  #areas a:hover { background:#2d3440; }
+  #areas i { width:10px; height:10px; background:#e0262680; border:1.5px solid #e02626; flex:none; }
+  #pos { left:12px; bottom:22px; font:12px ui-monospace, monospace; color:var(--muted); padding:5px 9px; }
+  .lbl10, .lbl1 { background:none; border:none; white-space:nowrap; text-align:center; pointer-events:none;
+    font-family:ui-monospace, monospace; text-shadow:0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff; }
+  .lbl10 { color:#1d3f73; font-size:11px; font-weight:700; line-height:1.15; }
+  .lbl1 { color:#444; font-size:10px; }
+  .lbl-area { background:#e02626; color:#fff; border:none; font-weight:700; box-shadow:none; }
+  .lbl-area::before { display:none; }
+  #map.z-lo .lbl10 { display:none; }
+  .leaflet-popup-content { font-size:12px; line-height:1.5; }
+  .leaflet-popup-content b { font-size:13px; }
+  .leaflet-popup-content code { font-size:12px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="info" class="box">
+  <h1>Slovenija · kvadrati D96/TM</h1>
+  <p>Modra mreža: kvadrati 10 × 10 km, označeni z <b>E / N</b> spodnjega levega vogala v km. Ob povečavi se pokažejo vsi lidarski listi 1 × 1 km (<code>DMR_E_N</code>). <b>Rdeče</b>: območja, ki so že v 3D aplikaciji.</p>
+  <p>Klik na karto = list, kvadrat in GPS koordinate.</p>
+  <div id="areas"></div>
+</div>
+<div id="pos" class="box">D96/TM</div>
+<script src="vendor/leaflet/leaflet.js"></script>
+<script>
+const VIEWER = './';                       // the 3D viewer (the static build links './')
+
+// D96/TM (EPSG:3794) <-> ETRS89 lat/lon: transverse Mercator on GRS80 (cm-accurate in Slovenia)
+const A = 6378137, F = 1 / 298.257222101, K0 = 0.9999, LON0 = 15 * Math.PI / 180;
+const E2 = F * (2 - F), EP2 = E2 / (1 - E2);
+function d96ToWgs(E, N) {
+  const x = E - 500000, y = N + 5000000;
+  const mu = y / K0 / (A * (1 - E2 / 4 - 3 * E2 ** 2 / 64 - 5 * E2 ** 3 / 256));
+  const e1 = (1 - Math.sqrt(1 - E2)) / (1 + Math.sqrt(1 - E2));
+  const p1 = mu + (3 * e1 / 2 - 27 * e1 ** 3 / 32) * Math.sin(2 * mu) + (21 * e1 ** 2 / 16 - 55 * e1 ** 4 / 32) * Math.sin(4 * mu)
+    + (151 * e1 ** 3 / 96) * Math.sin(6 * mu) + (1097 * e1 ** 4 / 512) * Math.sin(8 * mu);
+  const s1 = Math.sin(p1), c1 = Math.cos(p1), C1 = EP2 * c1 ** 2, T1 = Math.tan(p1) ** 2;
+  const N1 = A / Math.sqrt(1 - E2 * s1 ** 2), R1 = A * (1 - E2) / (1 - E2 * s1 ** 2) ** 1.5, D = x / (N1 * K0);
+  const lat = p1 - (N1 * Math.tan(p1) / R1) * (D ** 2 / 2 - (5 + 3 * T1 + 10 * C1 - 4 * C1 ** 2 - 9 * EP2) * D ** 4 / 24
+    + (61 + 90 * T1 + 298 * C1 + 45 * T1 ** 2 - 252 * EP2 - 3 * C1 ** 2) * D ** 6 / 720);
+  const lon = LON0 + (D - (1 + 2 * T1 + C1) * D ** 3 / 6 + (5 - 2 * C1 + 28 * T1 - 3 * C1 ** 2 + 8 * EP2 + 24 * T1 ** 2) * D ** 5 / 120) / c1;
+  return [lat * 180 / Math.PI, lon * 180 / Math.PI];
+}
+function wgsToD96(latD, lonD) {
+  const p = latD * Math.PI / 180, l = lonD * Math.PI / 180, s = Math.sin(p), c = Math.cos(p), t = Math.tan(p);
+  const N = A / Math.sqrt(1 - E2 * s * s), T = t * t, C = EP2 * c * c, a = (l - LON0) * c;
+  const M = A * ((1 - E2 / 4 - 3 * E2 ** 2 / 64 - 5 * E2 ** 3 / 256) * p - (3 * E2 / 8 + 3 * E2 ** 2 / 32 + 45 * E2 ** 3 / 1024) * Math.sin(2 * p)
+    + (15 * E2 ** 2 / 256 + 45 * E2 ** 3 / 1024) * Math.sin(4 * p) - (35 * E2 ** 3 / 3072) * Math.sin(6 * p));
+  const x = K0 * N * (a + (1 - T + C) * a ** 3 / 6 + (5 - 18 * T + T * T + 72 * C - 58 * EP2) * a ** 5 / 120);
+  const y = K0 * (M + N * t * (a * a / 2 + (5 - T + 9 * C + 4 * C * C) * a ** 4 / 24 + (61 - 58 * T + T * T + 600 * C - 330 * EP2) * a ** 6 / 720));
+  return [x + 500000, y - 5000000];
+}
+const square = (e0, n0, s) => [[e0, n0], [e0 + s, n0], [e0 + s, n0 + s], [e0, n0 + s]].map(([e, n]) => d96ToWgs(e, n));
+
+const map = L.map('map', { preferCanvas: true, zoomSnap: 0.5, minZoom: 7, maxZoom: 17 }).setView([46.12, 14.82], 8);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
+const zoomClass = () => map.getContainer().classList.toggle('z-lo', map.getZoom() < 9);
+map.on('zoomend', zoomClass); zoomClass();
+
+(async () => {
+  const [grid, areas] = await Promise.all(['si_grid.json', 'areas.json'].map((f) => fetch(f, { cache: 'no-cache' }).then((r) => r.json())));
+  // Slovenia border
+  L.polyline(grid.border.map((r) => r.concat([r[0]])), { color: '#333', weight: 2, interactive: false }).addTo(map);
+  // lidar sheets (1 km) and the 10 km squares that contain any of them
+  const sheets = new Set(), blocks = new Map();
+  for (const [y, runs] of Object.entries(grid.rows)) for (const [x0, x1] of runs) for (let x = x0; x <= x1; x++) {
+    sheets.add(x * 1000 + +y); const k = `${Math.floor(x / 10)}_${Math.floor(+y / 10)}`; blocks.set(k, (blocks.get(k) || 0) + 1);
+  }
+  const g10 = L.layerGroup().addTo(map);
+  for (const k of blocks.keys()) {
+    const [bx, by] = k.split('_').map(Number), e0 = bx * 10000, n0 = by * 10000;
+    L.polygon(square(e0, n0, 10000), { color: '#2a5da8', weight: 1.2, fill: false, interactive: false }).addTo(g10);
+    L.marker(d96ToWgs(e0 + 5000, n0 + 5000), { interactive: false,
+      icon: L.divIcon({ className: 'lbl10', html: `E ${e0 / 1000}<br>N ${n0 / 1000}`, iconSize: [60, 26], iconAnchor: [30, 13] }) }).addTo(g10);
+  }
+  // 1 km sheets of the visible part (zoom >= 11), names from zoom 13
+  const g1 = L.layerGroup().addTo(map);
+  const drawSheets = () => {
+    g1.clearLayers();
+    if (map.getZoom() < 11) return;
+    const b = map.getBounds(), cs = [b.getSouthWest(), b.getNorthWest(), b.getNorthEast(), b.getSouthEast()].map((p) => wgsToD96(p.lat, p.lng));
+    const ex = cs.map((c) => c[0]), ny = cs.map((c) => c[1]);
+    const xa = Math.floor(Math.min(...ex) / 1000), xb = Math.floor(Math.max(...ex) / 1000), ya = Math.floor(Math.min(...ny) / 1000), yb = Math.floor(Math.max(...ny) / 1000);
+    const names = map.getZoom() >= 13;
+    for (let x = xa; x <= xb; x++) for (let y = ya; y <= yb; y++) {
+      if (!sheets.has(x * 1000 + y)) continue;
+      L.polygon(square(x * 1000, y * 1000, 1000), { color: '#7a8796', weight: 0.7, fill: false, interactive: false }).addTo(g1);
+      if (names) L.marker(d96ToWgs(x * 1000 + 500, y * 1000 + 500), { interactive: false,
+        icon: L.divIcon({ className: 'lbl1', html: `${x}_${y}`, iconSize: [60, 12], iconAnchor: [30, 6] }) }).addTo(g1);
+    }
+  };
+  map.on('moveend', drawSheets); drawSheets();
+  // areas already in the 3D app: red
+  for (const [key, a] of Object.entries(areas)) {
+    const url = `${VIEWER}${key === 'creta' ? '' : '?a=' + key}`;
+    const p = L.polygon(square(a.e0, a.n0, a.e1 - a.e0), { color: '#e02626', weight: 2.5, fillColor: '#ff2020', fillOpacity: 0.35 }).addTo(map);
+    p.bindTooltip(a.name, { permanent: true, direction: 'center', className: 'lbl-area' });
+    p.bindPopup(`<b>${a.name}</b><br>D96/TM E ${a.e0 / 1000}–${a.e1 / 1000} km, N ${a.n0 / 1000}–${a.n1 / 1000} km<br><a href="${url}">Odpri v 3D →</a>`);
+    const row = document.createElement('a'); row.href = url; row.innerHTML = `<i></i>${a.name} <small style="color:var(--muted)">E ${a.e0 / 1000} N ${a.n0 / 1000}</small>`;
+    document.getElementById('areas').appendChild(row);
+  }
+  // click: sheet, 10 km square and GPS of the spot
+  map.on('click', (ev) => {
+    const [E, N] = wgsToD96(ev.latlng.lat, ev.latlng.lng), x = Math.floor(E / 1000), y = Math.floor(N / 1000);
+    const bx = Math.floor(x / 10) * 10, by = Math.floor(y / 10) * 10;
+    L.popup().setLatLng(ev.latlng).setContent(
+      `<b>List DMR_${x}_${y}</b>${sheets.has(x * 1000 + y) ? '' : ' <small>(ni lidarja)</small>'}<br>`
+      + `Kvadrat 10 km: E ${bx}–${bx + 10}, N ${by}–${by + 10} km<br>`
+      + `D96/TM e ${E.toFixed(0)} n ${N.toFixed(0)}<br>${ev.latlng.lat.toFixed(6)}, ${ev.latlng.lng.toFixed(6)}`).openOn(map);
+  });
+})();
+map.on('mousemove', (ev) => {
+  const [E, N] = wgsToD96(ev.latlng.lat, ev.latlng.lng);
+  document.getElementById('pos').textContent = `D96/TM e ${E.toFixed(0)} n ${N.toFixed(0)} · ${ev.latlng.lat.toFixed(5)}, ${ev.latlng.lng.toFixed(5)}`;
+});
+</script>
+</body>
+</html>

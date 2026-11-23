@@ -74,7 +74,7 @@
 </style>
 <script>
 window.CAVEMAP_CFG = {
-  tiles: 'data', tilesIndex: 'data/index.json?v=1569117f', worker: 'fmdt-worker.js?v=c22f5cd3',
+  tiles: 'data', tilesIndex: 'data/index.json?v=1569117f', worker: 'fmdt-worker.js?v=306d3b27',
   basePhoto: (L, x, y) => 'data/photo/' + L + '/' + x + '_' + y + '.jpg', basePhotoLevels: 4,
   // GURS orthophoto DOF050 in D96/TM
   ortho: (e0, n0, s) => 'https://ipi.eprostor.gov.si/wms-si-gurs-dts/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap'
@@ -98,6 +98,7 @@ window.CAVEMAP_CFG = {
   <div id="tabView" class="tab">
   <label>Območje
     <select id="area" style="background:#0f1216;color:var(--text);border:1px solid var(--line);border-radius:5px;padding:3px"></select></label>
+  <a href="map.html" style="color:var(--accent);font-size:12px">Zemljevid Slovenije – vsi kvadrati D96/TM</a>
   <div style="display:flex;gap:6px"><button id="mFree" class="on" style="flex:1">Prosti pogled</button><button id="mOrbit" style="flex:1">Orbita</button></div>
   <div class="checks">
     <label title="Kamera gre lahko skozi teren in pod njega (tipka N)"><input type="checkbox" id="noclip"> Noclip – pod teren (N)</label>
@@ -179,15 +180,13 @@ window.CAVEMAP_CFG = {
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { TerrainLOD } from './terrain3d.js?v=c22f5cd3';
+import { TerrainLOD } from './terrain3d.js?v=306d3b27';
 
 const q = new URLSearchParams(location.search);
 const $ = (id) => document.getElementById(id);
-// 10 x 10 km areas (D96/TM centre); ?a=<key> picks one, the selector reloads the page with the other area
-const AREAS = {
-  creta: { name: 'Čreta', e: 497000, n: 127000 },
-  trbovlje: { name: 'Trbovlje – Hrastnik', e: 505000, n: 112000 },
-};
+// 10 x 10 km areas from areas.json (next to this page); ?a=<key> picks one, the selector reloads with the other
+const AREAS = await (await fetch(new URL('areas.json', location.href), { cache: 'no-cache' })).json();
+for (const v of Object.values(AREAS)) { v.e = (v.e0 + v.e1) / 2; v.n = (v.n0 + v.n1) / 2; }
 const A = AREAS[q.get('a')] ? q.get('a') : 'creta', AREA = AREAS[A];
 const cE = +(q.get('e') || AREA.e), cN = +(q.get('n') || AREA.n), size = +(q.get('size') || 10000);
 $('areaName').textContent = AREA.name; document.title = document.title.replace('Čreta', AREA.name);
