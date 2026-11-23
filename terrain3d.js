@@ -7,14 +7,15 @@ const ROOT = 32000;              // root patch = one level-5 tile (32 km)
 const MIN_PATCH = 125;           // smallest patch: 125 m at 1 m spacing
 
 export class TerrainLOD {
-  constructor(scene, { baseUrl = '/terrain', indexUrl = null, workerUrl = '/static/fmdt-worker.js', orthoUrl = null, basePhoto = null, basePhotoLevels = 0, centreE, centreN, size, exaggeration = 1 } = {}) {
+  constructor(scene, { baseUrl = '/terrain', indexUrl = null, workerUrl = '/static/fmdt-worker.js', orthoUrl = null, basePhoto = null, basePhotoLevels = 0, centreE, centreN, size, bounds = null, exaggeration = 1 } = {}) {
     // pre-baked photo of the whole area shipped with the site (1 m/px at level 0, tiles of 1000*2^L m)
     this.indexUrl = indexUrl;
     this.basePhoto = basePhoto; this.basePhotoLevels = basePhotoLevels; this.baseCache = new Map(); this.baseInflight = 0;
     this.scene = scene; this.baseUrl = baseUrl; this.cE = centreE; this.cN = centreN;
     this.orthoUrl = orthoUrl || ((e0, n0, S) => `/ortho?e0=${e0}&n0=${n0}&s=${S}&px=256`);
     this.size = size; this.exag = exaggeration;
-    this.area = [centreE - size / 2, centreN - size / 2, centreE + size / 2, centreN + size / 2];
+    // terrain is drawn inside this box: the 10 x 10 km area, or (bounds) e.g. all of Slovenia on the PC-hosted version
+    this.area = bounds || [centreE - size / 2, centreN - size / 2, centreE + size / 2, centreN + size / 2];
     this.group = new THREE.Group(); this.group.name = 'Terrain'; scene.add(this.group);
     this.tiles = new Map();      // 'k/x_y' -> {state, h, min, max, used}
     this.patches = new Map();    // patch key -> {mesh, used}
@@ -347,9 +348,9 @@ export class TerrainLOD {
     return null;
   }
   // load the coarse shipped photo tiles of the whole area up front (few, small) so nothing is ever plain
-  preloadBase() {
+  preloadBase(box = this.area) {
     if (!this.basePhoto) return;
-    const [a0, b0, a1, b1] = this.area;
+    const [a0, b0, a1, b1] = box;
     for (let L = this.basePhotoLevels - 1; L >= 1; L--) {
       const T = 1000 * 2 ** L;
       for (let E = Math.floor(a0 / T) * T; E < a1; E += T) for (let N = Math.floor(b0 / T) * T; N < b1; N += T) this._baseEntry(L, E, N);

@@ -87,6 +87,8 @@ map.on('zoomend', zoomClass); zoomClass();
 
 (async () => {
   const [grid, areas] = await Promise.all(['si_grid.json', 'areas.json'].map((f) => fetch(f, { cache: 'no-cache' }).then((r) => r.json())));
+  // the PC-hosted version has terrain for all of Slovenia: any spot can open in 3D
+  const anywhere = await fetch('hosted.json', { cache: 'no-cache' }).then((r) => r.ok && r.json()).then((j) => !!(j && j.anywhere)).catch(() => false);
   // Slovenia border
   L.polyline(grid.border.map((r) => r.concat([r[0]])), { color: '#333', weight: 2, interactive: false }).addTo(map);
   // lidar sheets (1 km) and the 10 km squares that contain any of them
@@ -134,7 +136,8 @@ map.on('zoomend', zoomClass); zoomClass();
     L.popup().setLatLng(ev.latlng).setContent(
       `<b>List DMR_${x}_${y}</b>${sheets.has(x * 1000 + y) ? '' : ' <small>(ni lidarja)</small>'}<br>`
       + `Kvadrat 10 km: E ${bx}–${bx + 10}, N ${by}–${by + 10} km<br>`
-      + `D96/TM e ${E.toFixed(0)} n ${N.toFixed(0)}<br>${ev.latlng.lat.toFixed(6)}, ${ev.latlng.lng.toFixed(6)}`).openOn(map);
+      + `D96/TM e ${E.toFixed(0)} n ${N.toFixed(0)}<br>${ev.latlng.lat.toFixed(6)}, ${ev.latlng.lng.toFixed(6)}`
+      + (anywhere && sheets.has(x * 1000 + y) ? `<br><a href="${VIEWER}?a=p${x - 5}_${y - 5}">Odpri 3D tukaj (10 × 10 km) →</a>` : '')).openOn(map);
   });
 })();
 map.on('mousemove', (ev) => {
