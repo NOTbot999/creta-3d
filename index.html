@@ -17,6 +17,28 @@
   #ctl button { background:#232831; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px; cursor:pointer; }
   #ctl button.on { background:#2c8a69; border-color:var(--accent); }
   #hud { left:10px; bottom:10px; font-size:12px; color:var(--muted); }
+  #mbtns { display:none; position:absolute; right:10px; top:10px; gap:8px; z-index:6; }
+  #mbtns button { width:44px; height:44px; border-radius:10px; border:1px solid var(--line); background:var(--panel); color:var(--text);
+    font-size:20px; backdrop-filter: blur(4px); }
+  #mbtns button.on { background:#2c8a69; border-color:var(--accent); }
+  .touchonly { display:none; }
+  /* phones: panel = bottom sheet behind the ☰ button, info behind i, compact status line */
+  @media (max-width: 720px) {
+    #mbtns { display:flex; }
+    #info { display:none; top:62px; left:8px; right:8px; max-width:none; z-index:5; }
+    body.showInfo #info { display:block; }
+    #ctl { display:none; left:0; right:0; top:auto; bottom:0; width:auto; max-height:58vh; overflow-y:auto; z-index:6;
+      border-radius:14px 14px 0 0; padding:10px 14px calc(14px + env(safe-area-inset-bottom)); font-size:15px; }
+    body.showCtl #ctl { display:flex; }
+    #ctl label, .checks { font-size:14px; }
+    #ctl button { padding:9px; }
+    #tabs button { padding:9px 4px !important; }
+    #hud { left:8px; right:120px; top:10px; bottom:auto; font-size:10px; line-height:1.3; padding:5px 7px;
+      display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+    body.showCtl #hud { display:none; }
+    #pin { min-width:190px; }
+  }
+  @media (pointer: coarse) { .touchonly { display:block; } }
   #pin { position:absolute; transform:translate(-50%, calc(-100% - 12px)); font-size:12px; min-width:220px; z-index:5; line-height:1.45; }
   #pin::after { content:''; position:absolute; left:50%; bottom:-7px; transform:translateX(-50%) rotate(45deg); width:10px; height:10px; background:inherit; border-right:1px solid var(--line); border-bottom:1px solid var(--line); }
   #pin[hidden] { display:none; }
@@ -74,7 +96,7 @@
 </style>
 <script>
 window.CAVEMAP_CFG = {
-  tiles: 'data', tilesIndex: 'data/index.json?v=1569117f', worker: 'fmdt-worker.js?v=467e251b',
+  tiles: 'data', tilesIndex: 'data/index.json?v=1569117f', worker: 'fmdt-worker.js?v=f2725442',
   basePhoto: (L, x, y) => 'data/photo/' + L + '/' + x + '_' + y + '.jpg', basePhotoLevels: 4,
   // GURS orthophoto DOF050 in D96/TM
   ortho: (e0, n0, s) => 'https://ipi.eprostor.gov.si/wms-si-gurs-dts/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap'
@@ -91,7 +113,8 @@ window.CAVEMAP_CFG = {
 <canvas id="c"></canvas>
 <div id="info" class="box"><h1><span id="areaName">Čreta</span> · <span id="areaSize">10 × 10 km</span> · 3D lidar teren</h1>
   <p>Lidar CLSS 2023 (GURS), mreža 1 m, merilo 1:1. Satelit: DOF050 (GURS). Imena: OpenStreetMap, jame: kataster jam. Detajl se nalaga sproti glede na razdaljo.</p>
-  <p><b>Desni klik + vleci</b> = gledanje · <b>WASD</b> premik · <b>Q/E</b> dol/gor · <b>Shift</b> hitreje · <b>kolešček</b> hitrost · <b>Tab</b> orbita · <b>N</b> noclip (pod teren) · <b>klik</b> na teren = GPS koordinate</p></div>
+  <p><b>Desni klik + vleci</b> = gledanje · <b>WASD</b> premik · <b>Q/E</b> dol/gor · <b>Shift</b> hitreje · <b>kolešček</b> hitrost · <b>Tab</b> orbita · <b>N</b> noclip (pod teren) · <b>klik</b> na teren = GPS koordinate</p>
+  <p class="touchonly"><b>Telefon:</b> en prst = vrtenje · dva prsta = povečava / premik · dotik terena = GPS koordinate · ☰ = nastavitve</p></div>
 <div id="labels"></div>
 <div id="ctl" class="box">
   <div id="tabs"><button id="tView" class="on">Pogled</button><button id="tCand">Vrtače <span id="cCount"></span></button><button id="tStr">Strukture <span id="sCount"></span></button></div>
@@ -167,6 +190,7 @@ window.CAVEMAP_CFG = {
   </div>
 </div>
 <div id="hud" class="box"></div>
+<div id="mbtns"><button id="mInfo" title="Opis">i</button><button id="mCtl" title="Nastavitve">☰</button></div>
 <div id="pinDot" hidden></div>
 <div id="pin" class="box" hidden>
   <button class="x" id="pinX" title="Zapri">×</button>
@@ -180,7 +204,7 @@ window.CAVEMAP_CFG = {
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { TerrainLOD } from './terrain3d.js?v=467e251b';
+import { TerrainLOD } from './terrain3d.js?v=f2725442';
 
 const q = new URLSearchParams(location.search);
 const $ = (id) => document.getElementById(id);
@@ -287,7 +311,7 @@ function flyToCave(c) {
   const box = new THREE.Box3().setFromObject(c.mesh), ctr = box.getCenter(new THREE.Vector3()), r = Math.max(10, box.getSize(new THREE.Vector3()).length());
   if (+$('terOp').value > 50) { $('terOp').value = 35; }
   applyUnderground();
-  setMode('free');
+  setMode(touch ? 'orbit' : 'free');
   look(ctr.clone().add(new THREE.Vector3(r * 0.8, r * 0.9, r * 0.8)), ctr, Math.max(3, r / 5));
 }
 loadUnderground();
@@ -382,12 +406,12 @@ function selectCand(c) {
   c.row.scrollIntoView({ block: 'nearest' });
 }
 function flyToCand(c) {
-  selectCand(c); setMode('free');
+  selectCand(c); setMode(touch ? 'orbit' : 'free');
   const z = terrain.heightAt(c.E, c.N) ?? c.ground ?? 450, D = Math.max(90, c.R * 5);
   look(terrain.toLocal(c.E + D * 0.35, c.N - D, z + D * 0.75), terrain.toLocal(c.E, c.N, z), 25);
   showPin(c.E, c.N, `${c.name} · ${c.type === 'small_pit' ? 'majhna strma jama' : 'vrtača / kotanja'} · globina ${c.depth.toFixed(1)} m`);
 }
-$('cAll').onclick = () => setMode('free') || overview();   // the candidates cover the whole area
+$('cAll').onclick = () => setMode(touch ? 'orbit' : 'free') || overview();   // the candidates cover the whole area
 
 // ---- possible man-made structures from the lidar (tools/strukture.py): real footprint outline + label
 const STR_KIND = {
@@ -498,7 +522,7 @@ function flyToStr(s) {
   const paint = (x, h) => { tmp.setHex(h); for (let k = 0; k < STR_NV; k++) col.setXYZ(x.i * STR_NV + k, tmp.r, tmp.g, tmp.b); col.needsUpdate = true; };
   if (strSel) { strSel.row.classList.remove('sel'); strSel.label.el?.classList.remove('sel'); paint(strSel, strSel.color); }
   strSel = s; s.row.classList.add('sel'); s.label.el?.classList.add('sel'); paint(s, 0xffffff); s.row.scrollIntoView({ block: 'nearest' });
-  setMode('free');
+  setMode(touch ? 'orbit' : 'free');
   const z = terrain.heightAt(s.E, s.N) ?? s.zmid ?? 450, D = Math.max(70, s.L * 4);
   look(terrain.toLocal(s.E + D * 0.35, s.N - D, z + D * 0.8), terrain.toLocal(s.E, s.N, z), 20);
   showPin(s.E, s.N, `${s.id} · ${s.kname} · ${s.L.toFixed(0)}×${s.W.toFixed(0)} m · ${s.landcover}`);
@@ -599,6 +623,12 @@ const overview = () => whole ? look(new THREE.Vector3(0, 95000, 120000), new THR
 $('bOver').onclick = overview;
 $('bLow').onclick = () => { const z = terrain.heightAt(cE, cN) ?? 500; look(terrain.toLocal(cE - 1200, cN - 1500, z + 190), terrain.toLocal(cE, cN, z), 40); };
 overview();
+// phones / tablets: orbit (one finger turns, two fingers zoom and pan); ☰ and i open the panel and the info
+const touch = matchMedia('(pointer: coarse)').matches;
+if (touch) setMode('orbit');
+for (const [btn, cls, other] of [['mCtl', 'showCtl', 'showInfo'], ['mInfo', 'showInfo', 'showCtl']])
+  $(btn).onclick = () => { document.body.classList.remove(other); const on = document.body.classList.toggle(cls);
+    $('mCtl').classList.toggle('on', document.body.classList.contains('showCtl')); $('mInfo').classList.toggle('on', document.body.classList.contains('showInfo')); };
 loadCandidates();
 loadStructures();
 
